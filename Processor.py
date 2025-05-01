@@ -8,12 +8,12 @@ from scipy.ndimage import shift as subpixel_shift
 # Paramètres physiques 
 # ===========================================================================
 
-OFFSETS = np.asarray([2.28, 4.06, 3.93, 5.75])
+OFFSETS = np.asarray([7.33982036, 7.3548503, 10.86700599, 3.64670659])
 ANTENNA_POS = np.asarray([
-    [0.0, 0.0],     # Channel 0 (common focus)
-    [-2.55, 1.6],   # Channel 1
-    [2.05, 0.0],    # Channel 2
-    [2.4, 0.9],     # Channel 3
+    [-0.35, 2.7],     # Channel 0 (common focus)
+    [1.8, 0.5],   # Channel 1
+    [5.1, -2.3],    # Channel 2
+    [0.0, 0.0],     # Channel 3
 ])
 
 def load_file(file) :
@@ -30,7 +30,7 @@ def load_file(file) :
 
     return data, float(f0), float(B), Ms, Mc, float(Ts), float(Tc)
 
-f0, B, Ms, Mc, Ts, Tc = load_file("data/Mesures_18-04/calibration6m.npz")[1:7]
+f0, B, Ms, Mc, Ts, Tc = load_file("data/18-04/calibration6m.npz")[1:7]
 
 PAD_R = 16
 PAD_D = 16
@@ -78,7 +78,7 @@ def compute_position(file, frame_idx=0):
 
     def resid(p):
         x, y = p
-        r_tx = np.hypot(x - ANTENNA_POS[0,0], y - ANTENNA_POS[0,1])
+        r_tx = np.hypot(x, y)
         res = []
         for ch in range(0, 3):
             r_rx = np.hypot(x - ANTENNA_POS[ch,0], y - ANTENNA_POS[ch,1])
@@ -380,7 +380,7 @@ Rappel: 0.8211
 
 
 # --- 4. Construction & tracés ----------------------------------------------
-data_file = "data/Mesures_18-04/calibration6m.npz"
+data_file = "data/18-04/calibration6m.npz"
 frame_idx = 5
 channel   = 0                   # canal de référence (OFFSET[0])
 
