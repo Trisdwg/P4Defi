@@ -80,7 +80,6 @@ def compute_position(file, frame_idx=0):
 
     def resid(p):
         x, y = p
-        r_tx = np.hypot(x, y)
         res = []
         for q,dmes in enumerate(distances):
             d = (x**2+y**2)**(1/2) + ((x-ANTENNA_POS[q][0])**2 + (y-ANTENNA_POS[q][1])**2)**(1/2)
@@ -89,7 +88,7 @@ def compute_position(file, frame_idx=0):
 
 
     p0 = np.mean(ANTENNA_POS, axis=0)
-    sol = least_squares(resid, p0, method='lm')
+    sol = least_squares(resid, p0, loss='cauchy')
     return tuple(sol.x)
 
 

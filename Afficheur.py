@@ -2,20 +2,23 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import Processor 
+from Processor import compute_RDM
+from Processor import compute_position
+from Processor import load_file
+from Processor import OFFSETS, ANTENNA_POS, PAD_R, PAD_D
 import imageio.v2 as imageio
 from tqdm import tqdm  # Optional: progress bar
 
-Offset = Processor.OFFSETS
-Pos = Processor.ANTENNA_POS
+Offset = OFFSETS
+Pos = ANTENNA_POS
 idx = 1
 data_file = "data/30-04/calibration 1.npz"
-data, f0, B, Ms, Mc, Ts, Tc = Processor.load_file(data_file)
+data, f0, B, Ms, Mc, Ts, Tc = load_file(data_file)
 N_frame = data.shape[0]
 
-PAD_R = Processor.PAD_R
-PAD_D = Processor.PAD_D
-sample_rdm = Processor.compute_RDM(data_file, 0)[idx]
+PAD_R = PAD_R
+PAD_D = PAD_D
+sample_rdm = compute_RDM(data_file, 0)[idx]
 N_v, N_r = sample_rdm.shape
 delta_r = 3e8 / (2 * (B * PAD_R))
 delta_v = (3e8 / (2 * f0)) * (1.0 / (Mc * Tc) / PAD_D)
@@ -163,13 +166,3 @@ def generate_rdm_gif(data_file, psf, mode="multi_rdm", out_path="rdm_animation.g
     os.rmdir(temp_dir)
 
 
-def main() :
-    data_file = "data/30-04/marche 2-15m.npz"
-    frame_to_plot = 0
-    psf = Processor.psf_th
-    sol = Processor.compute_position(data_file,frame_to_plot)
-    print("Position : ", sol)
-
-
-if __name__ == '__main__':
-    main()   
