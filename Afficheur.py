@@ -166,17 +166,16 @@ def generate_rdm_gif(data_file, psf, mode="multi_rdm", out_path="rdm_animation.g
 
 
 def main() :
-    data_file = "data/Mesures_18-04/doublemarche4-17memevit.npz"
-    frame_to_plot = 80
+    data_file = "data/30-04/marche 2-15m.npz"
+    frame_to_plot = 0
     psf = Processor.psf_th
-
-    plt.imshow(psf, cmap='jet', origin='lower', aspect='auto')
-    plt.colorbar(label='PSF')
-    plt.title("PSF théorique centrée")
+    rdm = Processor.compute_RDM(data_file, frame_to_plot)[idx]
+    plt.imshow(rdm, cmap='jet', origin='lower', aspect='auto')
+    plt.colorbar(label='Puissance')
+    plt.title(f"RDM - frame {frame_to_plot+1}")
+    plt.xlabel("Distance (m)")
+    plt.ylabel("Vitesse (m/s)")
     plt.show()
-
-    # Mode 2 : étapes CLEAN sur une RDM
-    plot_rdm_modes(data_file, frame_to_plot, psf, mode="clean_steps")
 
     # Mode 1 : 4 RDMs avec cibles
     # plot_rdm_modes(data_file, frame_to_plot, psf, mode="multi_rdm")

@@ -52,13 +52,9 @@ def compute_RDM(file, frame_idx=0):
         R = np.fft.fft(sig, n=PAD_R * Ms, axis=1)
         D = np.fft.fftshift(np.fft.fft(R, n=PAD_D * Mc, axis=0),axes=0)
         rdm = np.abs(D)**2
-        bins_5m = int(np.round(5.0 / delta_r))
+        #bins_5m = int(np.round(5.0 / delta_r))
         # on ne garde que la moitié de l'axe des distances
-        rdm = rdm[:, : (PAD_R * Ms)//2 - bins_5m]
-
-        # décalage pour compenser l'offset
-        offset_bins = int(np.round(OFFSETS[ch] / (3e8 / (2 * B / PAD_R))))
-        rdm = np.roll(rdm, -offset_bins, axis=1)
+        rdm = rdm[:, : (PAD_R * Ms)//2]
         RDM.append(rdm)
 
     return RDM
@@ -171,8 +167,8 @@ def build_theoretical_psf(Ms, Mc, PAD_R, PAD_D, delta_r, offset_m):
     psf_th = np.roll(psf_th, shift_bins, axis=1)
 
     # tronquage : on garde la moitié utile (comme dans compute_RDM)
-    bins_5m = int(np.round(5.0 / delta_r))
-    psf_th = psf_th[:, : N_r_half - bins_5m]
+    #bins_5m = int(np.round(5.0 / delta_r))
+    psf_th = psf_th[:, : N_r_half]
     return psf_th
 
 # --- 3. PSF empirique -------------------------------------------------------
@@ -257,7 +253,7 @@ def clean_rdm(rdm, psf_full, threshold= 0.010790605558155648, max_iter=7,
         psf_shifted = np.roll(psf_full, shift=shift_amount, axis=(0, 1))"""
         # Décalage subpixel de la PSF centrée sur le pic détecté
         shift_amount = (
-            peak_idx[0] - psf_full.shape[0] // 2 + 0.04/delta_v,
+            peak_idx[0] - psf_full.shape[0] // 2,
             peak_idx[1] - psf_full.shape[1] // 2
         )
         psf_shifted = subpixel_shift(
