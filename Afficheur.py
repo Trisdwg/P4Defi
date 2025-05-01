@@ -303,135 +303,163 @@ def plot_clean_iterations(data_file, psf, frame_idx=0, channel_idx=0, save_path=
     else:
         plt.show()
 
-def plot_target_trajectory_with_kalman(data_file, kalman_params=None, save_path=None):
+
+def plot_target_trajectory_with_kalman(
+    data_file,
+    kalman_params=None,
+    save_path=None,
+):
     """
-    Animate target position and velocity vector on an (x,y) plane, with Kalman filter prediction
-    
-    Parameters:
-    -----------
-    data_file : str
-        Path to the data file
-    kalman_params : dict, optional
-        Dictionary with kalman parameters:
-        - kalman_x: Initial state vector [x, y, vx, vy]
-        - kalman_p: Initial 4x4 covariance matrix
-        - outlier_radius: Radius for outlier detection
-    save_path : str, optional
-        Path to save the animation
+    Anime la position et la vitesse de la cible dans le plan (x, y) ; la trace
+    rouge affiche **toute** la trajectoire prédit / lissée par le filtre Kalman.
     """
-    data, f0, B, Ms, Mc, Ts, Tc, N_frame, N_v, N_r, delta_r, delta_v = load_data_info(data_file)
-    
-    # Default Kalman parameters if not provided
+    (
+        _,
+        f0,
+        B,
+        Ms,
+        Mc,
+        Ts,
+        Tc,
+        N_frame,
+        _,
+        _,
+        delta_r,
+        delta_v,
+    ) = load_data_info(data_file)
+
+    # ────────────────────── paramètres Kalman par défaut ──────────────────────
     if kalman_params is None:
-        # Initialize with first position and zero velocity
         init_pos = np.array(Processor.compute_position(data_file, 0))
         kalman_params = {
-            'kalman_x': np.array([init_pos[0], init_pos[1], 0, 0]),
-            'kalman_p': np.eye(4) * 0.1,  # Small initial uncertainty
-            'outlier_radius': 1.0  # Default outlier radius
+            "kalman_x": np.array([init_pos[0], init_pos[1], 0.0, 0.0]),
+            "kalman_p": np.eye(4) * 0.1,
+            "outlier_radius": 1.0,
         }
-    
-    # Time interval between frames
-    dt = 0.128  # As in the original code
-    
-    # Create figure
-    fig, ax_map = plt.subplots(figsize=(10, 8))
-    
-    # Plot antenna positions
+
+    dt = 0.128  # intervalle entre deux frames
+
+    # ───────────────────────────── figure & objets ────────────────────────────
+    fig, ax = plt.subplots(figsize=(6, 8))
+
+    # antennes
     ant_pos = Processor.ANTENNA_POS
-    ax_map.scatter(ant_pos[:,0], ant_pos[:,1], marker='^', c='k', label='Antennes')
-    
-    # Initialize target position and velocity vector
-    init_pos = np.array(Processor.compute_position(data_file, 0))
-    vel_vec, _ = Processor.compute_speed(data_file, 0)
-    vx, vy = vel_vec * dt
-    
-    # Initialize plot elements
-    measured_point = ax_map.scatter(init_pos[0], init_pos[1], c='b', s=50, label='Mesure')
-    kalman_point = ax_map.scatter(
-        kalman_params['kalman_x'][0], 
-        kalman_params['kalman_x'][1], 
-        c='r', s=50, label='Kalman'
+    ax.scatter(ant_pos[:, 0], ant_pos[:, 1], marker="^", c="k", label="Antennes")
+
+    # mesures et Kalman – points + vecteurs vitesse
+    first_pos = np.array(Processor.compute_position(data_file, 0))
+    first_vel_vec, _ = Processor.compute_speed(data_file, 0)
+    vx0, vy0 = first_vel_vec * dt
+
+    meas_point = ax.scatter(*first_pos, c="b", s=50, label="Mesure")
+    kal_point = ax.scatter(
+        kalman_params["kalman_x"][0],
+        kalman_params["kalman_x"][1],
+        c="r",
+        s=50,
+        label="Kalman",
     )
-    
-    vel_quiver = ax_map.quiver(
-        init_pos[0], init_pos[1], vx, vy,
-        angles='xy', pivot='tail', scale_units='xy', scale=1, color='b'
+
+    meas_quiv = ax.quiver(
+        first_pos[0],
+        first_pos[1],
+        vx0,
+        vy0,
+        angles="xy",
+        pivot="tail",
+        scale_units="xy",
+        scale=1,
+        color="b",
     )
-    
-    kalman_quiver = ax_map.quiver(
-        kalman_params['kalman_x'][0], 
-        kalman_params['kalman_x'][1], 
-        kalman_params['kalman_x'][2] * dt, 
-        kalman_params['kalman_x'][3] * dt,
-        angles='xy', pivot='tail', scale_units='xy', scale=1, color='r'
+
+    kal_quiv = ax.quiver(
+        kalman_params["kalman_x"][0],
+        kalman_params["kalman_x"][1],
+        kalman_params["kalman_x"][2] * dt,
+        kalman_params["kalman_x"][3] * dt,
+        angles="xy",
+        pivot="tail",
+        scale_units="xy",
+        scale=1,
+        color="r",
     )
-    
-    # Set axis properties
-    ax_map.set_xlabel('X (m)')
-    ax_map.set_ylabel('Y (m)')
-    ax_map.set_xlim(-15, 15)
-    ax_map.set_ylim(-1, 26)
-    ax_map.legend()
-    
-    # Title will be updated with frame number
-    title = ax_map.set_title(f"Position de la cible - Frame 1/{N_frame}")
-    
-    # Store kalman state through animation updates
-    kalman_state = {
-        'x': kalman_params['kalman_x'].copy(),
-        'p': kalman_params['kalman_p'].copy(),
+
+    # ───────────── ajout d'une ligne pour tracer la trajectoire Kalman ─────────
+    traj_x, traj_y = [kalman_params["kalman_x"][0]], [kalman_params["kalman_x"][1]]
+    (traj_line,) = ax.plot(traj_x, traj_y, "r-", linewidth=1.5, label="Trajectoire Kalman")
+
+    # Axes
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_xlim(-15, 15)
+    ax.set_ylim(-1, 26)
+    ax.legend()
+
+    title = ax.set_title(f"Position de la cible – Frame 1/{N_frame}")
+
+    # état Kalman vivant entre les frames
+    kal_state = {
+        "x": kalman_params["kalman_x"].copy(),
+        "p": kalman_params["kalman_p"].copy(),
     }
-    
+
+    # ──────────────────────────── fonction update ────────────────────────────
     def update(frame_idx):
-        # Get measured position and velocity
-        pos = np.array(Processor.compute_position(data_file, frame_idx))
-        vel_vec, _ = Processor.compute_speed(data_file, frame_idx)
-        vx, vy = vel_vec * dt
-        
-        # Update measured point and velocity vector
-        measured_point.set_offsets([pos])
-        vel_quiver.set_offsets([pos])
-        vel_quiver.set_UVC(vx, vy)
-        
-        # Apply Kalman filter
-        kalman_result = Processor.kalman_filter_monocible(
-            data_file, 
-            frame_idx, 
-            kalman_state['x'], 
-            kalman_state['p'], 
-            kalman_params['outlier_radius']
+        # 1) mesure brute
+        meas_pos = np.array(Processor.compute_position(data_file, frame_idx))
+        meas_vel_vec, _ = Processor.compute_speed(data_file, frame_idx)
+        vx, vy = meas_vel_vec * dt
+
+        meas_point.set_offsets(meas_pos)
+        meas_quiv.set_offsets(meas_pos)
+        meas_quiv.set_UVC(vx, vy)
+
+        # 2) Kalman
+        kal_x, kal_p = Processor.kalman_filter_monocible(
+            data_file,
+            frame_idx,
+            kal_state["x"],
+            kal_state["p"],
+            kalman_params["outlier_radius"],
         )
-        
-        # Update kalman state
-        kalman_state['x'] = kalman_result[0]
-        kalman_state['p'] = kalman_result[1]
-        
-        # Update Kalman prediction display
-        kalman_pos = kalman_state['x'][:2]
-        kalman_vel = kalman_state['x'][2:] * dt  # Scale velocity for display
-        
-        kalman_point.set_offsets([kalman_pos])
-        kalman_quiver.set_offsets([kalman_pos])
-        kalman_quiver.set_UVC(kalman_vel[0], kalman_vel[1])
-        
-        # Update title
-        title.set_text(f"Position de la cible - Frame {frame_idx+1}/{N_frame}")
-        
-        return measured_point, vel_quiver, kalman_point, kalman_quiver, title
-    
+        kal_state["x"], kal_state["p"] = kal_x, kal_p
+
+        kal_pos = kal_x[:2]
+        kal_vel = kal_x[2:] * dt
+
+        kal_point.set_offsets(kal_pos)
+        kal_quiv.set_offsets(kal_pos)
+        kal_quiv.set_UVC(kal_vel[0], kal_vel[1])
+
+        # 3) mise à jour de la trajectoire
+        traj_x.append(kal_pos[0])
+        traj_y.append(kal_pos[1])
+        traj_line.set_data(traj_x, traj_y)
+
+        # 4) titre
+        title.set_text(f"Position de la cible – Frame {frame_idx+1}/{N_frame}")
+
+        return (
+            meas_point,
+            meas_quiv,
+            kal_point,
+            kal_quiv,
+            traj_line,
+            title,
+        )
+
     ani = animation.FuncAnimation(
         fig,
         update,
         frames=range(N_frame),
-        interval=200,
+        interval=50,
         blit=True,
-        repeat=True
+        repeat=True,
     )
-    
+
     plt.tight_layout()
     if save_path:
-        ani.save(save_path, writer='pillow', fps=5)
+        ani.save(save_path, writer="pillow", fps=5)
         print(f"Animation saved to {save_path}")
     else:
         plt.show()
@@ -455,9 +483,9 @@ def main():
     
     # Optional Kalman parameters
     kalman_params = {
-        'kalman_x': np.array([0, 10, 0, 0]),  # Initial state [x, y, vx, vy]
-        'kalman_p': np.eye(4) * 0.5,          # Initial covariance
-        'outlier_radius': 2.0                  # Outlier radius
+        'kalman_x': np.array([0, 2, 0, 0.5]),  # Initial state [x, y, vx, vy]
+        'kalman_p': np.eye(4) * 1,          # Initial covariance
+        'outlier_radius':100.0                  # Outlier radius
     }
     
     # Choose visualization based on mode

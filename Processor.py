@@ -152,7 +152,7 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
     # point_est = speed_est = np.zeros(2)
     for q in range(len(takeRDM)):
         dp = (kalman_xp[0]**2+kalman_xp[1]**2)**(1/2) + ((kalman_xp[0]-ANTENNA_POS[q][0])**2 + (kalman_xp[1]-ANTENNA_POS[q][1])**2)**(1/2)
-        vp = 0.5 * ((np.array([kalman_xp[0]-ANTENNA_POS[q][0], kalman_xp[1]-ANTENNA_POS[q][1]]) @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0]-ANTENNA_POS[q][0])**2+(kalman_xp[1]-foyers[q][1])**2)) +
+        vp = 0.5 * ((np.array([kalman_xp[0]-ANTENNA_POS[q][0], kalman_xp[1]-ANTENNA_POS[q][1]]) @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0]-ANTENNA_POS[q][0])**2+(kalman_xp[1]-ANTENNA_POS[q][1])**2)) +
                     (kalman_xp[:2] @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0])**2+(kalman_xp[1])**2)))
         dist = np.sqrt((dp - d_q[q])**2+(vp - v_q[q])**2)
         if(dist >= outlierRadius):
@@ -466,35 +466,3 @@ psf_th  = build_theoretical_psf(Ms, Mc, PAD_R, PAD_D,
 # C) Différence (empirique − théorique)
 peak_emp = np.unravel_index(np.argmax(psf_emp), psf_emp.shape)
 peak_th  = np.unravel_index(np.argmax(psf_th),  psf_th.shape)
-shift_bins = (peak_emp[0] - peak_th[0],   # Doppler (axe 0)
-              peak_emp[1] - peak_th[1])   # Range   (axe 1)
-print("Décalage (Doppler, Range) =", shift_bins)
-scale = (psf_emp * psf_th).sum() / (psf_th**2).sum()
-psf_th *= scale
-print("Facteur de mise à l'échelle =", scale)
-psf_th_aligned = np.roll(psf_th, shift=shift_bins, axis=(0, 1))
-diff = (psf_emp - psf_th_aligned)
-
-err = psf_emp - psf_th
-rmse   = np.sqrt((err**2).mean())        # erreur quadratique
-nrmse  = rmse / 1.0                      # pic=1 → NRMSE direct
-psnr   = -20*np.log10(rmse)              # dB
-print(f"NRMSE = {nrmse:.3f}  →  PSNR = {psnr:.1f} dB")
-
-# --- 5. Affichage -----------------------------------------------------------
-fig, axes = plt.subplots(1, 3, figsize=(18, 4), constrained_layout=True)
-
-im0 = axes[0].imshow(psf_emp, cmap="jet", aspect="auto")
-axes[0].set_title("PSF empirique (pic = 1)")
-fig.colorbar(im0, ax=axes[0], fraction=0.046)
-
-im1 = axes[1].imshow(psf_th_aligned, cmap="jet", aspect="auto")
-axes[1].set_title("PSF théorique (pic = 1)")
-fig.colorbar(im1, ax=axes[1], fraction=0.046)
-
-im2 = axes[2].imshow(diff, cmap="jet", aspect="auto",
-                     vmin=-np.max(np.abs(diff)), vmax=np.max(np.abs(diff)))
-axes[2].set_title("Écart empirique – théorique")
-fig.colorbar(im2, ax=axes[2], fraction=0.046)
-
-plt.show()
