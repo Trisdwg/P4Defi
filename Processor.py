@@ -8,7 +8,7 @@ from scipy.ndimage import shift as subpixel_shift
 # Paramètres physiques 
 # ===========================================================================
 
-OFFSETS = np.asarray([ 7.33982036  7.3548503  10.86700599  3.64670659])
+OFFSETS = np.asarray([ 7.33982036,  7.3548503 , 10.86700599,  3.64670659])
 ANTENNA_POS = np.asarray([[-0.35,2.7],[1.8,0.5],[5.1,-2.3],[0.0,0.0]])
 
 def load_file(file) :
