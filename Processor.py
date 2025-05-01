@@ -15,6 +15,8 @@ ANTENNA_POS = np.asarray([
     [5.1, -2.3],    # Channel 2
     [0.0, 0.0],     # Channel 3
 ])
+OFFSETS = np.asarray([ 7.33982036,  7.3548503 , 10.86700599,  3.64670659])
+ANTENNA_POS = np.asarray([[-0.35,2.7],[1.8,0.5],[5.1,-2.3],[0.0,0.0]])
 
 def load_file(file) :
     file = np.load(file)
@@ -73,17 +75,16 @@ def compute_position(file, frame_idx=0):
 
     for ch, rdm in enumerate(RDM):
         _, r_idx = np.unravel_index(np.argmax(rdm), rdm.shape)
-        dist = max(r_idx * delta_r - OFFSETS[ch], 0.0)
-        distances.append(2*dist)
+        dist = max(2* r_idx * delta_r - OFFSETS[ch], 0.0)
+        distances.append(dist)
 
     def resid(p):
         x, y = p
         r_tx = np.hypot(x, y)
         res = []
-        for ch in range(0, 3):
-            r_rx = np.hypot(x - ANTENNA_POS[ch,0], y - ANTENNA_POS[ch,1])
-            # somme de TX→C + C→RX
-            res.append((r_tx + r_rx) - distances[ch])
+        for q,dmes in enumerate(distances):
+            d = (x**2+y**2)**(1/2) + ((x-ANTENNA_POS[q][0])**2 + (y-ANTENNA_POS[q][1])**2)**(1/2)
+            res.append(dmes-d)
         return res
 
 
