@@ -203,266 +203,250 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
 # Partie 3 : Multicible Bistatique
 # ===========================================================================
 
-# --- 1. PSF rectangulaire analytique corrigée ------------------------------
-def dirichlet_kernel(Ndata, Nfft, k):
-    k = np.asarray(k, dtype=float)
-    phase = np.exp(-1j * np.pi * (Ndata - 1) * k / Nfft)
-    ratio = Ndata * np.sinc(k * Ndata / Nfft) / np.sinc(k / Nfft)  # robuste
-    return phase * ratio
-
-def psf_rectangular(Ms, Mc, N_r_half, N_d, normalize=True):
+def os_cfar(rdm, guard_size_doppler=3, guard_size_range=2, 
+                          window_size_doppler=12, window_size_range=8, 
+                          alpha=2.0, ordered_statistic_idx=0.75):
     """
-    PSF 2-D (doppler × range) pour une ouverture rectangulaire uniforme.
-    - N_r_half : ½-longueur FFT en range (après padding)
-    - N_d      : longueur FFT en Doppler (après padding)
-    Retourne une matrice (N_d  × 2*N_r_half) **centrée Doppler** (fftshift).
-    """
-    # noyaux de Dirichlet 1-D
-    Dk = dirichlet_kernel(Ms, 2*N_r_half, np.arange(2*N_r_half))
-    Dl = dirichlet_kernel(Mc, N_d, np.arange(N_d)) #- dirichlet_kernel(1, N_d, np.arange(N_d))
-    #Dl = (Dl + np.flipud(Dl))
-    B  = np.outer(Dl, Dk)                # produit séparant range/doppler
-    B  = np.fft.fftshift(B, axes=0)      # centrage Doppler
-    psf = np.abs(B) ** 2                 # puissance
-    if normalize:
-        psf /= np.max(psf)           # pic de puissance = 1
-    return psf
-
-# --- 2. PSF théorique centrée, offset corrigé ------------------------------
-def build_theoretical_psf(Ms, Mc, PAD_R, PAD_D, delta_r, offset_m):
-    """
-    Construit la PSF théorique : même tronquage range que compute_RDM
-    et recentrage pour compenser l'OFFSET du canal 0.
-    """
-    N_r_half = PAD_R * Ms // 2
-    N_d      = PAD_D * Mc
-    psf_th = psf_rectangular(Ms, Mc, N_r_half, N_d)          # pic = 1
-
-    # décalage "quarter-plane" FFT + compensation géométrique
-    shift_bins = int(np.round(PAD_R * Ms / 4 - offset_m / delta_r))
-    psf_th = np.roll(psf_th, shift_bins, axis=1)
-
-    # tronquage : on garde la moitié utile (comme dans compute_RDM)
-    #bins_5m = int(np.round(5.0 / delta_r))
-    psf_th = psf_th[:, : N_r_half]
-    return psf_th
-
-# --- 3. PSF empirique -------------------------------------------------------
-def build_empirical_psf(data_file, frame_idx, ch):
-    """
-    Recentre la PSF autour de son pic (symétrisation pour réduire le bruit).
-    Sortie normalisée (pic = 1).
-    """
-    rdm = compute_RDM(data_file, frame_idx)[ch]
-    peak = np.unravel_index(np.argmax(rdm), rdm.shape)
-    shift = (rdm.shape[0] // 2 - peak[0], rdm.shape[1] // 2 - peak[1])
-    psf = np.roll(rdm, shift=shift, axis=(0, 1))
-    #psf = 0.5 * (psf + np.flipud(psf))
-    #psf = 0.5 * (psf + np.fliplr(psf))
-    return psf / np.max(psf)
-
-def gaussian_window(shape, center, sigma_doppler=11.851385129604585, sigma_range=3.922807157442878):
-    """
-    Génère une fenêtre gaussienne centrée sur `center`.
-    """
-    D, R = np.indices(shape)
-    gauss = np.exp(-(((D - center[0])**2)/(2*sigma_doppler**2) 
-                     + ((R - center[1])**2)/(2*sigma_range**2)))
-    return gauss
-
-def binary_mask(shape, center, radius_doppler=10, radius_range=8):
-    """
-    Crée un masque binaire où les 1 indiquent les zones à conserver
-    et les 0 les zones à supprimer.
+    Implémentation d'un OS-CFAR 2D avec emphase sur les directions orthogonales
+    pour mieux discriminer les cibles des lobes secondaires.
     
     Arguments:
-    - shape: forme du masque (identique à la RDM)
-    - center: tuple (doppler_idx, range_idx) indiquant le centre de la suppression
-    - radius_doppler: rayon de l'ellipse en indices Doppler
-    - radius_range: rayon de l'ellipse en indices Range
+    - rdm: Matrice Range-Doppler à traiter
+    - guard_size_doppler/range: Taille de la zone de garde dans chaque direction
+    - window_size_doppler/range: Taille de la fenêtre dans chaque direction
+    - alpha: Facteur multiplicatif pour le seuil
+    - ordered_statistic_idx: Indice normalisé [0,1] pour l'OS-CFAR
     
     Retourne:
-    - Un masque binaire de taille shape avec des 0 dans la zone à supprimer
+    - mask: Masque binaire des détections
+    - thresholds: Matrice des seuils calculés
     """
-    D, R = np.indices(shape)
-    mask = np.ones(shape)
+    n_doppler, n_range = rdm.shape
+    mask = np.zeros_like(rdm, dtype=bool)
+    thresholds = np.zeros_like(rdm, dtype=float)
     
-    # Création d'une ellipse binaire
-    condition = ((D - center[0])**2 / radius_doppler**2 + 
-                 (R - center[1])**2 / radius_range**2) <= 1.0
+    # Calcul des paramètres pour l'OS-CFAR
+    total_cells_orthogonal = 2 * (window_size_doppler + window_size_range)
+    os_idx = int(np.floor(total_cells_orthogonal * ordered_statistic_idx))
     
-    # Mettre à 0 les points à l'intérieur de l'ellipse
-    mask[condition] = 0
+    # Parcours de tous les points de la matrice
+    for d in range(n_doppler):
+        for r in range(n_range):
+            # Échantillons orthogonaux: colonnes et lignes exclusivement
+            samples = []
+            
+            # Échantillons en Doppler (verticaux)
+            d_start = max(0, d - window_size_doppler - guard_size_doppler)
+            d_guard_start = max(0, d - guard_size_doppler)
+            d_guard_end = min(n_doppler, d + guard_size_doppler + 1)
+            d_end = min(n_doppler, d + window_size_doppler + guard_size_doppler + 1)
+            
+            # Partie supérieure (Doppler négatif)
+            samples.extend(rdm[d_start:d_guard_start, r].tolist())
+            # Partie inférieure (Doppler positif)
+            samples.extend(rdm[d_guard_end:d_end, r].tolist())
+            
+            # Échantillons en Range (horizontaux)
+            r_start = max(0, r - window_size_range - guard_size_range)
+            r_guard_start = max(0, r - guard_size_range)
+            r_guard_end = min(n_range, r + guard_size_range + 1)
+            r_end = min(n_range, r + window_size_range + guard_size_range + 1)
+            
+            # Partie gauche
+            samples.extend(rdm[d, r_start:r_guard_start].tolist())
+            # Partie droite
+            samples.extend(rdm[d, r_guard_end:r_end].tolist())
+            
+            # Si on n'a pas assez d'échantillons, ajuster l'indice OS
+            actual_os_idx = min(os_idx, len(samples) - 1) if samples else 0
+            
+            # Calcul du seuil OS-CFAR
+            if samples:
+                samples.sort()
+                threshold = alpha * samples[actual_os_idx]
+                thresholds[d, r] = threshold
+                
+                # Détection
+                if rdm[d, r] > threshold:
+                    # Vérification supplémentaire pour rejeter les lobes secondaires
+                    is_lobe = False
+                    
+                    # Vérifier l'asymétrie en Doppler (typique des lobes secondaires)
+                    if d_guard_start > 0 and d_guard_end < n_doppler:
+                        up_vals = rdm[d_guard_start-1:d_guard_start, r]
+                        down_vals = rdm[d_guard_end:d_guard_end+1, r]
+                        
+                        # Si forte asymétrie (un côté beaucoup plus fort que l'autre)
+                        if np.mean(up_vals) > 2 * rdm[d, r] or np.mean(down_vals) > 2 * rdm[d, r]:
+                            is_lobe = True
+                    
+                    # Vérifier l'asymétrie en Range
+                    if r_guard_start > 0 and r_guard_end < n_range:
+                        left_vals = rdm[d, r_guard_start-1:r_guard_start]
+                        right_vals = rdm[d, r_guard_end:r_guard_end+1]
+                        
+                        # Si forte asymétrie (un côté beaucoup plus fort que l'autre)
+                        if np.mean(left_vals) > 2 * rdm[d, r] or np.mean(right_vals) > 2 * rdm[d, r]:
+                            is_lobe = True
+                    
+                    # Accepter uniquement si ce n'est pas un lobe secondaire
+                    mask[d, r] = not is_lobe
     
-    return mask
+    return mask, thresholds
 
-def clean_rdm(rdm, psf_full, threshold= 0.010790605558155648, max_iter=7,
-              radius_doppler=45.059643672455984, radius_range= 9.999565022794656, use_binary_mask=True):
+def extract_targets_from_cfar(rdm, mask, min_distance_doppler=20, min_distance_range=15):
     """
-    CLEAN avec masque binaire pour suppression des lobes secondaires.
+    Extrait les cibles à partir du masque CFAR en fusionnant les détections proches.
     
     Arguments:
-    - rdm: matrice RDM brute
-    - psf_full: PSF empirique centrée
-    - threshold: pourcentage du pic max à atteindre
-    - max_iter: nombre maximal d'itérations
-    - radius_doppler, radius_range: rayons de l'ellipse en bins
-    - use_binary_mask: si True, utilise un masque binaire; sinon, utilise la gaussienne
-    """
-    rdm_clean = np.copy(rdm)
-    targets = []
-    iteration = []
-    # Normalisation préalable de la PSF
-    psf_full = psf_full / np.max(psf_full)
-
-    for _ in range(max_iter):
-        peak_value = np.max(rdm_clean)
-        if peak_value < threshold*np.max(rdm) :
-            break
-
-        peak_idx = np.unravel_index(np.argmax(rdm_clean), rdm_clean.shape)
-        targets.append((peak_idx, peak_value))
-
-        """# Décalage de la PSF
-        shift_amount = (peak_idx[0] - psf_full.shape[0] // 2,
-                        peak_idx[1] - psf_full.shape[1] // 2)
-        psf_shifted = np.roll(psf_full, shift=shift_amount, axis=(0, 1))"""
-        # Décalage subpixel de la PSF centrée sur le pic détecté
-        shift_amount = (
-            peak_idx[0] - psf_full.shape[0] // 2,
-            peak_idx[1] - psf_full.shape[1] // 2
-        )
-        psf_shifted = subpixel_shift(
-            psf_full,
-            shift=shift_amount,
-            order=3,        # Interpolation linéaire
-            mode='constant',
-            cval=0.0
-        )
-
-
-        # Facteur optimal par moindres carrés
-        # scale_factor = np.sum(rdm_clean * psf_shifted) / np.sum(psf_shifted ** 2)
-        scale_factor = 1.2 * np.sum(rdm_clean * psf_shifted) / np.sum(psf_shifted ** 2)
-
-        # Soustraction précise
-        rdm_clean -= scale_factor * psf_shifted
-
-        if use_binary_mask:
-            # Suppression par masque binaire
-            mask = binary_mask(
-                rdm_clean.shape, 
-                peak_idx,
-                radius_doppler=radius_doppler,
-                radius_range=radius_range
-            )
-            rdm_clean *= mask
-        else:
-            # Ancienne méthode avec fenêtre gaussienne
-            gauss_win = gaussian_window(
-                rdm_clean.shape,
-                peak_idx,
-                sigma_doppler=11.851385129604585,
-                sigma_range=3.922807157442878
-            )
-            rdm_clean *= (1 - gauss_win)
-        iteration.append(rdm_clean.copy())
-        # Forcer la positivité finale
-        rdm_clean = np.maximum(rdm_clean, 0)
-
-    return targets, rdm_clean, iteration
-
-def fuse_targets(targets, max_dist_doppler=57, max_dist_range=41):
-    """
-    Regroupe les cibles proches par fusion pondérée dans une zone elliptique
-    avec des semi-axes distincts pour Doppler et Range.
+    - rdm: Matrice Range-Doppler d'origine
+    - mask: Masque binaire des détections CFAR
+    - min_distance_doppler/range: Distance minimale entre deux cibles distinctes
     
-    - targets: liste de ((doppler_idx, range_idx), amplitude)
-    - max_dist_doppler: semi-axe en Doppler (en bins)
-    - max_dist_range: semi-axe en Range (en bins)
+    Retourne:
+    - targets: Liste de tuples ((d, r), amplitude)
     """
-    targets = targets.copy()
-    i = 0
-    while i < len(targets):
-        merged = False
-        (di, ri), ai = targets[i]
-        j = i + 1
-        while j < len(targets):
-            (dj, rj), aj = targets[j]
-            dd = di - dj
-            dr = ri - rj
-            # Condition elliptique : (dd/a)^2 + (dr/b)^2 <= 1
-            if (dd / max_dist_doppler) ** 2 + (dr / max_dist_range) ** 2 <= 1:
-                # Moyenne pondérée par amplitude
-                total_amp = ai + aj
-                new_d = (di * ai + dj * aj) / total_amp
-                new_r = (ri * ai + rj * aj) / total_amp
-                new_target = ((new_d, new_r), total_amp)
-
-                # Supprimer les deux anciennes cibles
-                targets.pop(j)
-                targets.pop(i)
-
-                # Ajouter la nouvelle cible à la fin (à reconsidérer)
-                targets.append(new_target)
-                merged = True
-                break  # Recommencer la fusion pour l'indice i
-            else:
-                j += 1
-
-        if not merged:
-            i += 1
-
-    # Arrondir les positions aux indices entiers
-    targets = [(tuple(map(int, pos)), amp) for pos, amp in targets]
+    # Trouver tous les points détectés
+    detected_points = np.argwhere(mask)
+    targets = []
+    
+    # Si aucune détection, retourner liste vide
+    if len(detected_points) == 0:
+        return targets
+    
+    # Trier les points par amplitude décroissante
+    amplitudes = [rdm[d, r] for d, r in detected_points]
+    sorted_indices = np.argsort(amplitudes)[::-1]
+    
+    processed_mask = np.zeros_like(mask, dtype=bool)
+    
+    for idx in sorted_indices:
+        d, r = detected_points[idx]
+        
+        # Vérifier si ce point n'a pas déjà été traité (fusion)
+        if not processed_mask[d, r]:
+            amp = rdm[d, r]
+            targets.append(((d, r), amp))
+            
+            # Marquer tous les points proches comme traités
+            d_min = max(0, d - min_distance_doppler)
+            d_max = min(rdm.shape[0], d + min_distance_doppler + 1)
+            r_min = max(0, r - min_distance_range)
+            r_max = min(rdm.shape[1], r + min_distance_range + 1)
+            
+            # Zone elliptique de fusion
+            for dd in range(d_min, d_max):
+                for rr in range(r_min, r_max):
+                    # Condition elliptique
+                    if ((dd - d) / min_distance_doppler)**2 + ((rr - r) / min_distance_range)**2 <= 1:
+                        processed_mask[dd, rr] = True
+    
     return targets
 
+def cfar_2d_adaptive(rdm, guard_size=(3, 2), window_size=(12, 8), alpha=1.5, 
+                     use_os_cfar=True, os_percentile=75, directional_weights=(0.6, 0.4),
+                     min_distance=(5, 3)):
+    """
+    CFAR 2D adaptatif qui combine CA-CFAR et OS-CFAR avec détection 
+    d'asymétrie pour éliminer les lobes secondaires.
+    
+    Arguments:
+    - rdm: Matrice Range-Doppler
+    - guard_size: Tuple (doppler, range) pour taille de la zone de garde
+    - window_size: Tuple (doppler, range) pour taille de la fenêtre
+    - alpha: Facteur multiplicatif pour le seuil
+    - use_os_cfar: Si True, utilise OS-CFAR sinon CA-CFAR
+    - os_percentile: Percentile pour OS-CFAR [0-100]
+    - directional_weights: Pondération (doppler, range) pour l'analyse directionnelle
+    - min_distance: Distance minimale entre cibles pour fusion
+    
+    Retourne:
+    - targets: Liste de tuples ((d, r), amplitude)
+    - mask: Masque binaire des détections
+    - thresholds: Matrice des seuils calculés
+    """
+    # Convertir le percentile en indice normalisé [0,1]
+    os_idx = os_percentile / 100.0
 
+    # Utiliser OS-CFAR avec analyse orthogonale
+    mask, thresholds = os_cfar(
+        rdm, 
+        guard_size_doppler=guard_size[0], 
+        guard_size_range=guard_size[1],
+        window_size_doppler=window_size[0], 
+        window_size_range=window_size[1],
+        alpha=alpha, 
+        ordered_statistic_idx=os_idx
+    )
+    
+    # Extraction et fusion des cibles
+    targets = extract_targets_from_cfar(
+        rdm, 
+        mask, 
+        min_distance_doppler=min_distance[0], 
+        min_distance_range=min_distance[1]
+    )
+    
+    return targets, mask, thresholds
 
-"""
-=== Meilleurs paramètres trouvés TOUT SCENARIO===
-threshold = 0.010790605558155648
-size_doppler = 45.059643672455984
-size_range = 9.999565022794656
-eps_doppler = 57
-eps_range = 41
-max_iter = 7
-alpha = 0.0
+def visualize_cfar_results(rdm, mask, thresholds, targets=None, figsize=(12, 10)):
+    """
+    Visualisation des résultats CFAR: données originales, seuil et détections.
+    
+    Arguments:
+    - rdm: Matrice Range-Doppler originale
+    - mask: Masque binaire des détections
+    - thresholds: Matrice des seuils calculés
+    - targets: Liste optionnelle des cibles extraites
+    - figsize: Taille de la figure
+    """
 
-F1-score: 0.8676
-Précision: 0.9056
-Rappel: 0.8744
-"""
+    rdm_display = rdm
+    thresholds_display = thresholds
+    vmin = None
+    vmax = None
 
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    
+    # Affichage RDM originale
+    im0 = axes[0, 0].imshow(rdm_display, aspect='auto', cmap='jet', vmin=vmin, vmax=vmax)
+    axes[0, 0].set_title('RDM Originale')
+    plt.colorbar(im0, ax=axes[0, 0])
+    
+    # Affichage des seuils CFAR
+    im1 = axes[0, 1].imshow(thresholds_display, aspect='auto', cmap='jet', vmin=vmin, vmax=vmax)
+    axes[0, 1].set_title('Seuils CFAR')
+    plt.colorbar(im1, ax=axes[0, 1])
+    
+    # Affichage des détections
+    im2 = axes[1, 0].imshow(rdm_display, aspect='auto', cmap='jet', vmin=vmin, vmax=vmax)
+    axes[1, 0].contour(mask, colors='r', linewidths=1)
+    axes[1, 0].set_title('Détections CFAR')
+    plt.colorbar(im2, ax=axes[1, 0])
+    
+    # Affichage RDM avec cibles extraites
+    im3 = axes[1, 1].imshow(rdm_display, aspect='auto', cmap='jet', vmin=vmin, vmax=vmax)
+    axes[1, 1].set_title('Cibles Extraites')
+    plt.colorbar(im3, ax=axes[1, 1])
+    
+    # Afficher les cibles si fournies
+    if targets:
+        for (d, r), amp in targets:
+            axes[1, 1].plot(r, d, 'rx', markersize=10)
+            amp_text = f"{amp:.2e}"
+            axes[1, 1].annotate(amp_text, (r+2, d+2), color='white', fontsize=8)
+    
+    # Étiquettes communes
+    for ax in axes.flat:
+        ax.set_xlabel('Range (bins)')
+        ax.set_ylabel('Doppler (bins)')
+    
+    plt.tight_layout()
+    return fig
 
-"""
-=== Meilleurs paramètres trouvés POUR DIMINUER EPS===
-'threshold': 0.010698706428397686,
-'size_doppler': 45.861773377677714,
-'size_range': 11.790914451040322,
-'eps_doppler': 45,
-'eps_range': 26,
-'max_iter': 3,
-'alpha': 1
-
-F1-score: 0.8236
-Précision: 0.8767
-Rappel: 0.8211 
-"""
-
-
-# --- 4. Construction & tracés ----------------------------------------------
-data_file = "data/18-04/calibration6m.npz"
-frame_idx = 5
-channel   = 0                   # canal de référence (OFFSET[0])
-
-# A) PSF empirique
-psf_emp = build_empirical_psf(data_file, frame_idx, channel)
-
-# B) PSF théorique
-psf_th  = build_theoretical_psf(Ms, Mc, PAD_R, PAD_D,
-                                delta_r, OFFSETS[channel])
-
-# C) Différence (empirique − théorique)
-peak_emp = np.unravel_index(np.argmax(psf_emp), psf_emp.shape)
-peak_th  = np.unravel_index(np.argmax(psf_th),  psf_th.shape)
+# Paramètres WORK IN PROGRESS
+guard_size = (30, 30)  # (doppler, range)
+window_size = (10, 20)  # (doppler, range)
+alpha = 5 # Facteur multiplicatif du seuil
+use_os_cfar = True # True pour OS-CFAR, False pour CA-CFAR
+os_percentile = 99  # Percentile pour OS-CFAR
