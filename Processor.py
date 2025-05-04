@@ -414,8 +414,8 @@ def ca_cfar(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler=1
     
     return mask, thresholds
 
-def ca_cfar_convolve(rdm, guard_size_doppler=3, guard_size_range=2,
-                     window_size_doppler=12, window_size_range=8, alpha=2.0):
+def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
+                     window_size_doppler=45, window_size_range=15, alpha=10.0):
     n_doppler, n_range = rdm.shape
 
     # Total window size
@@ -549,8 +549,8 @@ def osca_cfar(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler
 
 def extract_targets_from_cfar(rdm, mask,
                               min_distance_doppler=20,
-                              min_distance_range=15,
-                              min_points_per_target=60):
+                              min_distance_range=10,
+                              min_points_per_target=50):
     """
     Extrait les cibles à partir du masque CFAR en fusionnant les détections proches.
     Écarte les clusters contenant moins de `min_points_per_target` points.
@@ -844,16 +844,35 @@ os_percentile = 99  # Percentile pour OS-CFAR
 
 from itertools import product
 
-RDM = compute_RDM("data/30-04/calibration 1.npz", 3)
-def multitarget_tracking(rdm):
-    all_targets = [[], [], [], []]
+def initialize_tracker(RDM):
+    """
+    Initialise la structure :
+        {0: [[(v0,r0),(v1,r1)],   # track 0
+             [(v0,r0),(v1,r1),(v2,r2)],          # track 1
+             ...
+            ]
+        }
+    """ 
+    all_targets = [[], [], [], []]   # liste des cibles par canal
 
     for ch in range(4):
-        mask, thresholds = ca_cfar_convolve(rdm[ch])
-        targets = extract_targets_from_cfar(rdm[ch], mask)
+        mask, _ = ca_cfar_convolve(RDM[ch])
+        targets = extract_targets_from_cfar(RDM[ch], mask)
+        # on ne garde que le tuple (v,r) retourné par les fonctions maison
         all_targets[ch].extend(t[0] for t in targets)
 
-    all_targets = [chan or [None] for chan in all_targets]
-    print(all_targets)
+    # Remplace les canaux vides par [None] pour permettre le produit cartésien
+    all_targets = [chan if chan else [None] for chan in all_targets]
 
-#multitarget_tracking(RDM)
+    tracks = []
+    for combo in product(*all_targets):
+        # On enlève les None ; on impose 2–4 vraies détections par track
+        real_hits = [x for x in combo if x is not None]
+        if 2 <= len(real_hits) <= 4:
+            tracks.append(real_hits)
+    
+    tracker = {}
+    tracker[0] = tracks
+    # Clé = indice de la frame d'init ; valeur = liste des tracks
+    return tracker
+
