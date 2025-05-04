@@ -314,7 +314,7 @@ def os_cfarv2(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler
     n_doppler, n_range = rdm.shape
     mask = np.zeros_like(rdm, dtype=bool)
     thresholds = np.zeros_like(rdm, dtype=float)
-    print(rdm.shape)
+    #print(rdm.shape)
     
     # Parcours de tous les points de la matrice
     for d in range(n_doppler):
