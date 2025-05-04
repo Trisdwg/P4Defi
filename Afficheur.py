@@ -229,7 +229,7 @@ def plot_multi_target_rdms(data_file, guard_size=(30, 30), window_size=(30, 20),
             plt.show()
 
 def plot_multi_target_rdmsv2(data_file, guard_size=(10,11), window_size=(45, 15), alpha = 10.0, 
-                           os_percentile = 99, min_distance=(30, 15), save_path = None, 
+                           os_percentile = 99, min_distance=(20, 8), save_path = None, 
                            anim = False, frame_idx = 0):
     
     """Visualise les RDM (4 canaux) et les cibles CFAR.
@@ -580,17 +580,17 @@ def plot_target_trajectory_with_kalman(
 
 def main():
     # File path - update with your data file
-    data_file = "data/30-04/marche orga.npz"
+    data_file = "data/30-04/calibration 1.npz"
     
     # Visualization mode selection
     # Choose one of: "basic_rdm", "multi_target", "clean_iterations", "trajectory_kalman"
     visualization_mode = "multi_targetv2"  # or "basic_rdm", "trajectory_kalman"
     
     # Animation flag - if True, creates animation, otherwise static plot
-    anim = True
+    anim = False
     
     # Save path - set to None to display plot instead of saving
-    save_path = "data/30-04/marche orga.gif"  # or "output.gif" for animations, "output.png" for static plots
+    save_path = None #"data/30-04/marche orga.gif"  # or "output.gif" for animations, "output.png" for static plots
     
     # Optional Kalman parameters
     kalman_params = {
@@ -604,10 +604,10 @@ def main():
         plot_basic_rdms(data_file, anim, save_path)
     
     elif visualization_mode == "multi_target":
-        plot_multi_target_rdms(data_file, anim = anim, save_path = save_path)
+        plot_multi_target_rdms(data_file, anim = anim, save_path = None)
 
     elif visualization_mode == "multi_targetv2":
-        plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path)
+        plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=30)
 
     elif visualization_mode == "multi_targetosca":
         plot_multi_target_rdms_osca(data_file, anim = anim, save_path = save_path)

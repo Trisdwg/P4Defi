@@ -547,53 +547,65 @@ def osca_cfar(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler
     
     return mask, thresholds
 
-def extract_targets_from_cfar(rdm, mask, min_distance_doppler=20, min_distance_range=15):
+def extract_targets_from_cfar(rdm, mask,
+                              min_distance_doppler=20,
+                              min_distance_range=15,
+                              min_points_per_target=60):
     """
     Extrait les cibles à partir du masque CFAR en fusionnant les détections proches.
-    
-    Arguments:
-    - rdm: Matrice Range-Doppler d'origine
-    - mask: Masque binaire des détections CFAR
-    - min_distance_doppler/range: Distance minimale entre deux cibles distinctes
-    
+    Écarte les clusters contenant moins de `min_points_per_target` points.
+
     Retourne:
-    - targets: Liste de tuples ((d, r), amplitude)
+        targets : liste de tuples ((d, r), amplitude)
+                  où (d, r) est la cellule CFAR de plus forte amplitude du cluster.
     """
-    # Trouver tous les points détectés
+    print(min_distance_doppler,min_distance_range,min_points_per_target)
     detected_points = np.argwhere(mask)
     targets = []
-    
-    # Si aucune détection, retourner liste vide
+
     if len(detected_points) == 0:
         return targets
-    
-    # Trier les points par amplitude décroissante
-    amplitudes = [rdm[d, r] for d, r in detected_points]
-    sorted_indices = np.argsort(amplitudes)[::-1]
-    
+
+    # Indices des détections triés par amplitude décroissante
+    amplitudes = rdm[mask]
+    sorted_order = amplitudes.argsort()[::-1]
+    sorted_points = detected_points[sorted_order]
+
     processed_mask = np.zeros_like(mask, dtype=bool)
-    
-    for idx in sorted_indices:
-        d, r = detected_points[idx]
-        
-        # Vérifier si ce point n'a pas déjà été traité (fusion)
-        if not processed_mask[d, r]:
+
+    for d, r in sorted_points:
+
+        # point déjà absorbé par un cluster précédent ?
+        if processed_mask[d, r]:
+            continue
+
+        # ---------------------------------------------------------------------------------
+        # Construction du cluster autour du point (d, r)
+        # ---------------------------------------------------------------------------------
+        cluster_idx = []           # pour compter les points du cluster
+        d_min = max(0, d - min_distance_doppler)
+        d_max = min(rdm.shape[0], d + min_distance_doppler + 1)
+        r_min = max(0, r - min_distance_range)
+        r_max = min(rdm.shape[1], r + min_distance_range + 1)
+
+        for dd in range(d_min, d_max):
+            for rr in range(r_min, r_max):
+                if mask[dd, rr] and not processed_mask[dd, rr]:
+                    # Condition elliptique de voisinage
+                    if ((dd - d) / min_distance_doppler) ** 2 + \
+                       ((rr - r) / min_distance_range) ** 2 <= 1:
+                        cluster_idx.append((dd, rr))
+                        processed_mask[dd, rr] = True
+
+        # ---------------------------------------------------------------------------------
+        # Accepte ou rejette le cluster selon sa taille
+        # ---------------------------------------------------------------------------------
+        if len(cluster_idx) >= min_points_per_target:
+            # (d, r) est forcément le point de plus forte amplitude du cluster
             amp = rdm[d, r]
             targets.append(((d, r), amp))
-            
-            # Marquer tous les points proches comme traités
-            d_min = max(0, d - min_distance_doppler)
-            d_max = min(rdm.shape[0], d + min_distance_doppler + 1)
-            r_min = max(0, r - min_distance_range)
-            r_max = min(rdm.shape[1], r + min_distance_range + 1)
-            
-            # Zone elliptique de fusion
-            for dd in range(d_min, d_max):
-                for rr in range(r_min, r_max):
-                    # Condition elliptique
-                    if ((dd - d) / min_distance_doppler)**2 + ((rr - r) / min_distance_range)**2 <= 1:
-                        processed_mask[dd, rr] = True
-    
+        # sinon : cluster trop petit → ignoré
+
     return targets
 
 def cfar_2d_adaptive(rdm, guard_size=(3, 2), window_size=(12, 8), alpha=1.5, 
@@ -828,3 +840,20 @@ window_size = (10, 20)  # (doppler, range)
 alpha = 5 # Facteur multiplicatif du seuil
 use_os_cfar = True # True pour OS-CFAR, False pour CA-CFAR
 os_percentile = 99  # Percentile pour OS-CFAR
+
+
+from itertools import product
+
+RDM = compute_RDM("data/30-04/calibration 1.npz", 3)
+def multitarget_tracking(rdm):
+    all_targets = [[], [], [], []]
+
+    for ch in range(4):
+        mask, thresholds = ca_cfar_convolve(rdm[ch])
+        targets = extract_targets_from_cfar(rdm[ch], mask)
+        all_targets[ch].extend(t[0] for t in targets)
+
+    all_targets = [chan or [None] for chan in all_targets]
+    print(all_targets)
+
+#multitarget_tracking(RDM)
