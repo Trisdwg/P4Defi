@@ -1,8 +1,8 @@
 import numpy as np
-import cupy as cp
 from matplotlib import pyplot as plt
 from scipy.optimize import least_squares
 from scipy.ndimage import shift as subpixel_shift
+from scipy.ndimage import maximum_filter
 from scipy.signal import convolve2d
 from scipy.signal import fftconvolve
 import time
@@ -297,7 +297,7 @@ def os_cfar(rdm, guard_size_doppler=3, guard_size_range=2,
     
     return mask, thresholds
 
-def ca_cfar(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler=12, window_size_range=8, 
+def ca_cfar(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler=12, window_size_range=8,
                           alpha=2.0, ordered_statistic_idx=0.75):
     """
     Implémentation d'un OS-CFAR 2D avec emphase sur les directions orthogonales
@@ -453,36 +453,6 @@ def ca_cfar_convolve(rdm, guard_size_doppler=3, guard_size_range=2,
     mask = rdm > thresholds
 
     return mask, thresholds
-
-def ca_cfar_gpu(rdm_cpu, guard_size_doppler=3, guard_size_range=2, 
-                window_size_doppler=12, window_size_range=8, alpha=2.0):
-    # Transfer RDM to GPU
-    rdm = cp.asarray(rdm_cpu)
-
-    # Parameters
-    total_win_d = 2 * (window_size_doppler + guard_size_doppler) + 1
-    total_win_r = 2 * (window_size_range + guard_size_range) + 1
-    guard_win_d = 2 * guard_size_doppler + 1
-    guard_win_r = 2 * guard_size_range + 1
-
-    # Create kernel
-    kernel = cp.ones((total_win_d, total_win_r), dtype=cp.float32)
-    guard = cp.zeros_like(kernel)
-    d_start = window_size_doppler
-    r_start = window_size_range
-    guard[d_start:d_start+guard_win_d, r_start:r_start+guard_win_r] = 1
-    kernel -= guard
-    num_training_cells = cp.sum(kernel)
-
-    # Convolve on GPU
-    training_sum = cp.signal.convolve(rdm, kernel, mode='same')
-    threshold = alpha * (training_sum / num_training_cells)
-
-    # Create detection mask
-    mask = rdm > threshold
-
-    # Transfer results back to CPU
-    return cp.asnumpy(mask), cp.asnumpy(threshold)
 
 def osca_cfar(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler=12, window_size_range=8, 
                           alpha=2.0, ordered_statistic_idx=0.75):
@@ -672,6 +642,49 @@ def cfar_2d_adaptive(rdm, guard_size=(3, 2), window_size=(12, 8), alpha=1.5,
     
     return targets, mask, thresholds
 
+def create_star_shaped_footprint(window_size):
+    """
+    Creates a star-shaped footprint with the given window size.
+    
+    The footprint is created with 1's along the central row and column 
+    and 0's elsewhere. This creates a cross-shaped or star-shaped mask.
+    
+    Arguments:
+    - window_size: Tuple (doppler, range) representing the size of the window.
+    
+    Returns:
+    - footprint: A 2D numpy array representing the star-shaped footprint.
+    """
+    doppler_size, range_size = window_size
+
+    # Create a zero matrix with the given window size
+    footprint = np.zeros((doppler_size, range_size), dtype=int)
+    
+    # Set the middle row and middle column to 1's to form a star shape
+    center_doppler = doppler_size // 2
+    center_range = range_size // 2
+    
+    footprint[center_doppler, :] = 1  # Set the central row to 1's
+    footprint[center_doppler-1, :] = 1  
+    footprint[center_doppler+1, :] = 1  
+    footprint[center_doppler-2, :] = 1  
+    footprint[center_doppler+2, :] = 1  
+    footprint[center_doppler-3, :] = 1  
+    footprint[center_doppler+3, :] = 1  
+    footprint[center_doppler-4, :] = 1  
+    footprint[center_doppler+4, :] = 1  
+    footprint[:, center_range] = 1    # Set the central column to 1's
+    footprint[:, center_range-1] = 1
+    footprint[:, center_range+1] = 1
+    footprint[:, center_range-2] = 1
+    footprint[:, center_range+2] = 1
+    footprint[:, center_range-3] = 1
+    footprint[:, center_range+3] = 1
+    footprint[:, center_range-4] = 1
+    footprint[:, center_range+4] = 1
+
+    return footprint
+
 def cfar_2d(rdm, guard_size, window_size, alpha, 
                      use_os_cfar, os_percentile,
                      min_distance):
@@ -708,21 +721,15 @@ def cfar_2d(rdm, guard_size, window_size, alpha,
     end_time = time.time()
     print("Execution time convolve ca_cfar:", end_time - start_time, "seconds")
 
-    start_time = time.time()
-    maskgpu, thresholdsgpu = ca_cfar_gpu(
-        rdm, 
-        guard_size_doppler=guard_size[0],
-        guard_size_range=guard_size[1],
-        window_size_doppler=window_size[0], 
-        window_size_range=window_size[1],
-        alpha=alpha
-    )
-    end_time = time.time()
-    print("Execution time gpu ca_cfar:", end_time - start_time, "seconds")
+    # Define a star-shaped footprint (this one is a 3x3 example)
+    # footprint = create_star_shaped_footprint([3*x for x in window_size])
+    # print("Footprint shape:\n", footprint)
 
-    print("Thresholds difference: ", np.max(np.abs(thresholds - thresholdsgpu)))
-    print("Mask difference: ", np.sum(mask != maskgpu))
+    # Apply the local maximum filter using the star-shaped footprint
+    # local_max = rdm == maximum_filter(rdm, footprint=footprint, mode='constant')
 
+    # Combine the CFAR mask with the local maximum mask
+    # mask = mask & local_max  # Only keep the local maxima that are CFAR detections
     # Extraction et fusion des cibles
     targets = extract_targets_from_cfar(
         rdm, 

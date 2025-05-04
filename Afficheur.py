@@ -228,7 +228,7 @@ def plot_multi_target_rdms(data_file, guard_size=(30, 30), window_size=(30, 20),
         else:
             plt.show()
 
-def plot_multi_target_rdmsv2(data_file, guard_size=(10,11), window_size=(40, 10), alpha = 10.0, 
+def plot_multi_target_rdmsv2(data_file, guard_size=(10,11), window_size=(45, 15), alpha = 10.0, 
                            os_percentile = 99, min_distance=(30, 15), save_path = None, 
                            anim = False, frame_idx = 0):
     
@@ -580,14 +580,14 @@ def plot_target_trajectory_with_kalman(
 
 def main():
     # File path - update with your data file
-    data_file = "data/30-04/marche cercle 2 cibles.npz"
+    data_file = "data/30-04/marche 2-15m.npz"
     
     # Visualization mode selection
     # Choose one of: "basic_rdm", "multi_target", "clean_iterations", "trajectory_kalman"
     visualization_mode = "multi_targetv2"  # or "basic_rdm", "trajectory_kalman"
     
     # Animation flag - if True, creates animation, otherwise static plot
-    anim = True
+    anim = False
     
     # Save path - set to None to display plot instead of saving
     save_path = None #"data/30-04/marche 2-15m.gif"  # or "output.gif" for animations, "output.png" for static plots
@@ -607,7 +607,7 @@ def main():
         plot_multi_target_rdms(data_file, anim = anim, save_path = save_path)
 
     elif visualization_mode == "multi_targetv2":
-        plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path)
+        plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=116)
 
     elif visualization_mode == "multi_targetosca":
         plot_multi_target_rdms_osca(data_file, anim = anim, save_path = save_path)
