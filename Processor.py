@@ -2,7 +2,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy.optimize import least_squares
 from scipy.ndimage import shift as subpixel_shift
-
+from scipy.ndimage import maximum_filter
+from scipy.signal import convolve2d
+from scipy.signal import fftconvolve
+import time
 
 # ===========================================================================
 # Paramètres physiques 
@@ -294,7 +297,164 @@ def os_cfar(rdm, guard_size_doppler=3, guard_size_range=2,
     
     return mask, thresholds
 
-def os_cfarv2(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler=12, window_size_range=8, 
+def ca_cfar(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler=12, window_size_range=8,
+                          alpha=2.0, ordered_statistic_idx=0.75):
+    """
+    Implémentation d'un OS-CFAR 2D avec emphase sur les directions orthogonales
+    pour mieux discriminer les cibles des lobes secondaires.
+    
+    Arguments:
+    - rdm: Matrice Range-Doppler à traiter
+    - guard_size_doppler/range: Taille de la zone de garde dans chaque direction
+    - window_size_doppler/range: Taille de la fenêtre dans chaque direction
+    - alpha: Facteur multiplicatif pour le seuil
+    - ordered_statistic_idx: Indice normalisé [0,1] pour l'OS-CFAR
+    
+    Retourne:
+    - mask: Masque binaire des détections
+    - thresholds: Matrice des seuils calculés
+    """
+    n_doppler, n_range = rdm.shape
+    mask = np.zeros_like(rdm, dtype=bool)
+    thresholds = np.zeros_like(rdm, dtype=float)
+    data = np.copy(rdm)
+    print(rdm.shape)
+    print(guard_size_doppler, guard_size_range, window_size_doppler, window_size_range)
+
+    data = np.pad(data, ((guard_size_doppler+window_size_doppler,guard_size_doppler+window_size_doppler),(guard_size_range+window_size_range,guard_size_range+window_size_range)), 'wrap')
+    print(data.shape)
+    area_covered = (2*(window_size_doppler+guard_size_doppler)+1)*(2*(window_size_range+guard_size_range)+1) - (2*guard_size_doppler+1)*(2*guard_size_range+1)
+
+    for d in range(n_doppler):
+        # window_mean = np.sum(data[d:d+2*(guard_size_doppler+window_size_doppler)+1,0:2*(guard_size_range+window_size_range)+1])/area_covered
+        # guard_mean = np.sum(data[d+window_size_doppler:d+window_size_doppler+2*guard_size_doppler+1,window_size_range:window_size_range+2*guard_size_range+1])/area_covered
+        for r in range(n_range):
+            # mean = window_mean - guard_mean
+            # threshold = alpha * mean
+            # thresholds[d, r] = threshold
+
+            actual_mean = (np.sum(data[d:d+2*(guard_size_doppler+window_size_doppler)+1,r:r+2*(guard_size_range+window_size_range)+1])
+                           -np.sum(data[d+window_size_doppler:d+window_size_doppler+2*guard_size_doppler+1,r+window_size_range:r+window_size_range+2*guard_size_range+1]))/area_covered
+            threshold = alpha * actual_mean
+            thresholds[d, r] = threshold
+
+            # if(mean - actual_mean > 0.1):
+            #     print("mean: ", mean, "actual_mean: ", actual_mean)
+
+            # Détection
+            if rdm[d, r] > threshold:
+                mask[d, r] = True
+
+            # window_mean -= np.sum(data[d:d+2*(window_size_doppler+guard_size_doppler)+1,r:r+1])/area_covered
+            # window_mean += np.sum(data[d:d+2*(guard_size_doppler+window_size_doppler)+1,r+2*(guard_size_range+window_size_range)+1:r+2*(guard_size_range+window_size_range)+2])/area_covered
+            # guard_mean -= np.sum(data[d+window_size_doppler:d+window_size_doppler+2*guard_size_doppler+1,r+window_size_range:r+window_size_range+1])/area_covered
+            # guard_mean += np.sum(data[d+window_size_doppler:d+window_size_doppler+2*guard_size_doppler+1,r+window_size_range+2*guard_size_range+1:r+window_size_range+2*guard_size_range+2])/area_covered
+
+    # Parcours de tous les points de la matrice
+    # for d in range(n_doppler):
+        # for r in range(n_range):
+            # Échantillons orthogonaux: colonnes et lignes exclusivement
+            # samples = np.array([])
+            # 
+            # Échantillons en Doppler (verticaux)
+            # d_start = max(0, d - window_size_doppler - guard_size_doppler)
+            # d_guard_start = max(0, d - guard_size_doppler)
+            # d_guard_end = min(n_doppler, d + guard_size_doppler + 1)
+            # d_end = min(n_doppler, d + window_size_doppler + guard_size_doppler + 1)
+            # 
+            # 
+            # Échantillons en Range (horizontaux)
+            # r_start = max(0, r - window_size_range - guard_size_range)
+            # r_guard_start = max(0, r - guard_size_range)
+            # r_guard_end = min(n_range, r + guard_size_range + 1)
+            # r_end = min(n_range, r + window_size_range + guard_size_range + 1)
+            # 
+            # samples = np.append(samples, rdm[d_start:d_guard_start, r_start:r_end].flatten())
+            # samples = np.append(samples, rdm[d_guard_end:d_end, r_start:r_end].flatten())
+            # samples = np.append(samples, rdm[d_guard_start:d_guard_end, r_start:r_guard_start].flatten())
+            # samples = np.append(samples, rdm[d_guard_start:d_guard_end, r_guard_end:r_end].flatten())
+
+            # Si on n'a pas assez d'échantillons, ajuster l'indice OS
+            # os_idx = int(np.floor(len(samples) * ordered_statistic_idx))
+            # actual_os_idx = min(os_idx, len(samples) - 1) if samples.size != 0 else 0
+            # 
+            # Calcul du seuil OS-CFAR
+            # if samples.size != 0:
+                # np.sort(samples, kind='mergesort')
+                # threshold = alpha * samples[actual_os_idx]
+                # thresholds[d, r] = threshold
+                # threshold = alpha * np.mean(samples)
+                # thresholds[d, r] = threshold
+                # 
+                # Détection
+                # if rdm[d, r] > threshold:
+                    # Vérification supplémentaire pour rejeter les lobes secondaires
+                    # is_lobe = False
+                    # 
+                    # Vérifier l'asymétrie en Doppler (typique des lobes secondaires)
+                    # if d_start > 0 and d_end < n_doppler:
+                        # up_vals = rdm[d_start:d, r]
+                        # down_vals = rdm[d+1:d_end, r]
+                        # 
+                        # Si forte asymétrie (un côté beaucoup plus fort que l'autre)
+                        # if np.mean(up_vals) > 2 * rdm[d, r] or np.mean(down_vals) > 2 * rdm[d, r]:
+                            # is_lobe = True
+                    # 
+                    # Vérifier l'asymétrie en Range
+                    # if r_start > 0 and r_end < n_range:
+                        # left_vals = rdm[d, r_start:r]
+                        # right_vals = rdm[d, r+1:r_end]
+                        # 
+                        # Si forte asymétrie (un côté beaucoup plus fort que l'autre)
+                        # if np.mean(left_vals) > 2 * rdm[d, r] or np.mean(right_vals) > 2 * rdm[d, r]:
+                            # is_lobe = True
+                    # 
+                    # Accepter uniquement si ce n'est pas un lobe secondaire
+                    # mask[d, r] = not is_lobe
+    
+    return mask, thresholds
+
+def ca_cfar_convolve(rdm, guard_size_doppler=3, guard_size_range=2,
+                     window_size_doppler=12, window_size_range=8, alpha=2.0):
+    n_doppler, n_range = rdm.shape
+
+    # Total window size
+    total_doppler = 2 * (window_size_doppler + guard_size_doppler) + 1
+    total_range = 2 * (window_size_range + guard_size_range) + 1
+
+    # Guard size
+    guard_doppler = 2 * guard_size_doppler + 1
+    guard_range = 2 * guard_size_range + 1
+
+    # Create convolution kernels
+    kernel_window = np.ones((total_doppler, total_range), dtype=np.float32)
+    kernel_guard = np.zeros_like(kernel_window)
+
+    # Fill guard region inside the total window with 1s
+    center_d, center_r = total_doppler // 2, total_range // 2
+    kernel_guard[
+        center_d - guard_size_doppler:center_d + guard_size_doppler + 1,
+        center_r - guard_size_range:center_r + guard_size_range + 1
+    ] = 1
+
+    # CFAR kernel = window - guard
+    kernel_cfar = kernel_window - kernel_guard
+    n_cfar_cells = np.sum(kernel_cfar)
+
+    # Convolve to get sum of training cells at each position
+    padded_rdm = np.pad(rdm, ((total_doppler // 2, total_doppler // 2),
+                              (total_range // 2, total_range // 2)), mode='wrap')
+    training_sums = fftconvolve(padded_rdm, kernel_cfar, mode='valid')
+
+    # Compute thresholds
+    thresholds = alpha * (training_sums / n_cfar_cells)
+
+    # Generate detection mask
+    mask = rdm > thresholds
+
+    return mask, thresholds
+
+def osca_cfar(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler=12, window_size_range=8, 
                           alpha=2.0, ordered_statistic_idx=0.75):
     """
     Implémentation d'un OS-CFAR 2D avec emphase sur les directions orthogonales
@@ -316,11 +476,10 @@ def os_cfarv2(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler
     thresholds = np.zeros_like(rdm, dtype=float)
     #print(rdm.shape)
     
+    
     # Parcours de tous les points de la matrice
     for d in range(n_doppler):
         for r in range(n_range):
-            # Échantillons orthogonaux: colonnes et lignes exclusivement
-            samples = np.array([])
             
             # Échantillons en Doppler (verticaux)
             d_start = max(0, d - window_size_doppler - guard_size_doppler)
@@ -334,92 +493,32 @@ def os_cfarv2(rdm, guard_size_doppler=3, guard_size_range=2, window_size_doppler
             r_guard_start = max(0, r - guard_size_range)
             r_guard_end = min(n_range, r + guard_size_range + 1)
             r_end = min(n_range, r + window_size_range + guard_size_range + 1)
-            
-            samples = np.append(samples, rdm[d_start:d_guard_start, r_start:r_end].flatten())
-            samples = np.append(samples, rdm[d_guard_end:d_end, r_start:r_end].flatten())
-            samples = np.append(samples, rdm[d_guard_start:d_guard_end, r_start:r_guard_start].flatten())
-            samples = np.append(samples, rdm[d_guard_start:d_guard_end, r_guard_end:r_end].flatten())
 
-            # Si on n'a pas assez d'échantillons, ajuster l'indice OS
-            os_idx = int(np.floor(len(samples) * ordered_statistic_idx))
-            actual_os_idx = min(os_idx, len(samples) - 1) if samples.size != 0 else 0
-            
-            # Calcul du seuil OS-CFAR
-            if samples.size != 0:
-                # np.sort(samples, kind='mergesort')
-                # threshold = alpha * samples[actual_os_idx]
-                # thresholds[d, r] = threshold
-                threshold = alpha * np.mean(samples)
-                thresholds[d, r] = threshold
-                
-                # Détection
-                if rdm[d, r] > threshold:
-                    # Vérification supplémentaire pour rejeter les lobes secondaires
-                    is_lobe = False
-                    
-                    # Vérifier l'asymétrie en Doppler (typique des lobes secondaires)
-                    if d_start > 0 and d_end < n_doppler:
-                        up_vals = rdm[d_start:d, r]
-                        down_vals = rdm[d+1:d_end, r]
-                        
-                        # Si forte asymétrie (un côté beaucoup plus fort que l'autre)
-                        if np.mean(up_vals) > 2 * rdm[d, r] or np.mean(down_vals) > 2 * rdm[d, r]:
-                            is_lobe = True
-                    
-                    # Vérifier l'asymétrie en Range
-                    if r_start > 0 and r_end < n_range:
-                        left_vals = rdm[d, r_start:r]
-                        right_vals = rdm[d, r+1:r_end]
-                        
-                        # Si forte asymétrie (un côté beaucoup plus fort que l'autre)
-                        if np.mean(left_vals) > 2 * rdm[d, r] or np.mean(right_vals) > 2 * rdm[d, r]:
-                            is_lobe = True
-                    
-                    # Accepter uniquement si ce n'est pas un lobe secondaire
-                    mask[d, r] = not is_lobe
-    
-    return mask, thresholds
-
-def osca_cfar(rdm, window_size_doppler=12, window_size_range=8, 
-                          alpha=2.0, ordered_statistic_idx=0.75):
-    """
-    Implémentation d'un OS-CFAR 2D avec emphase sur les directions orthogonales
-    pour mieux discriminer les cibles des lobes secondaires.
-    
-    Arguments:
-    - rdm: Matrice Range-Doppler à traiter
-    - guard_size_doppler/range: Taille de la zone de garde dans chaque direction
-    - window_size_doppler/range: Taille de la fenêtre dans chaque direction
-    - alpha: Facteur multiplicatif pour le seuil
-    - ordered_statistic_idx: Indice normalisé [0,1] pour l'OS-CFAR
-    
-    Retourne:
-    - mask: Masque binaire des détections
-    - thresholds: Matrice des seuils calculés
-    """
-    n_doppler, n_range = rdm.shape
-    mask = np.zeros_like(rdm, dtype=bool)
-    thresholds = np.zeros_like(rdm, dtype=float)
-    print(rdm.shape)
-    
-    
-    # Parcours de tous les points de la matrice
-    for d in range(n_doppler):
-        for r in range(n_range):
-            
-            r_start = max(0, r - window_size_range)
-            r_end = min(n_range, r + window_size_range + 1)
-            d_start = max(0, d - window_size_doppler)
-            d_end = min(n_doppler, d + window_size_doppler + 1)
-
-            samples = rdm[d_start:d_end, r_start:r_end]
-            samples = np.sort(samples, kind='mergesort')
+            sample1 = rdm[d_start:d_guard_start, r_start:r_end]
+            sample1 = np.sort(sample1, kind='mergesort')
+            sample2 = rdm[d_guard_end:d_end, r_start:r_end]
+            sample2 = np.sort(sample2, kind='mergesort')
+            sample3 = np.append(rdm[d_guard_start:d_guard_end, r_start:r_guard_start], rdm[d_guard_start:d_guard_end, r_guard_end:r_end], axis=-1)
+            sample3 = np.sort(sample3, kind='mergesort')
             
             # Calcul des paramètres pour l'OS-CFAR
-            total_cells = 2*((d_end-d_start) * (r_end-r_start))
-            os_idx = int(np.floor(total_cells * ordered_statistic_idx))
+            total_cells12 = r_end-r_start
+            os_idx12 = int(np.floor(total_cells12 * ordered_statistic_idx))
+            actual_os_idx12 = min(os_idx12, len(sample1[0]) - 1) if sample1.size != 0 else 0
+            total_cells3 = d_end-d_guard_end + d_guard_start-d_start
+            os_idx3 = int(np.floor(total_cells3 * ordered_statistic_idx))
+            actual_os_idx3 = min(os_idx3, len(sample3[0]) - 1) if sample3.size != 0 else 0
 
-            threshold = np.means(samples[:][os_idx])
+            mean = 0
+            for i in range(len(sample1)):
+                mean += sample1[i][actual_os_idx12]
+            for i in range(len(sample2)):
+                mean += sample2[i][actual_os_idx12]
+            for i in range(len(sample3)):
+                mean += sample3[i][actual_os_idx3]
+            mean /= (len(sample1) + len(sample2) + len(sample3))
+
+            threshold = alpha*mean
             thresholds[d, r] = threshold
             if rdm[d, r] > threshold:
                 # Vérification supplémentaire pour rejeter les lobes secondaires
@@ -543,6 +642,49 @@ def cfar_2d_adaptive(rdm, guard_size=(3, 2), window_size=(12, 8), alpha=1.5,
     
     return targets, mask, thresholds
 
+def create_star_shaped_footprint(window_size):
+    """
+    Creates a star-shaped footprint with the given window size.
+    
+    The footprint is created with 1's along the central row and column 
+    and 0's elsewhere. This creates a cross-shaped or star-shaped mask.
+    
+    Arguments:
+    - window_size: Tuple (doppler, range) representing the size of the window.
+    
+    Returns:
+    - footprint: A 2D numpy array representing the star-shaped footprint.
+    """
+    doppler_size, range_size = window_size
+
+    # Create a zero matrix with the given window size
+    footprint = np.zeros((doppler_size, range_size), dtype=int)
+    
+    # Set the middle row and middle column to 1's to form a star shape
+    center_doppler = doppler_size // 2
+    center_range = range_size // 2
+    
+    footprint[center_doppler, :] = 1  # Set the central row to 1's
+    footprint[center_doppler-1, :] = 1  
+    footprint[center_doppler+1, :] = 1  
+    footprint[center_doppler-2, :] = 1  
+    footprint[center_doppler+2, :] = 1  
+    footprint[center_doppler-3, :] = 1  
+    footprint[center_doppler+3, :] = 1  
+    footprint[center_doppler-4, :] = 1  
+    footprint[center_doppler+4, :] = 1  
+    footprint[:, center_range] = 1    # Set the central column to 1's
+    footprint[:, center_range-1] = 1
+    footprint[:, center_range+1] = 1
+    footprint[:, center_range-2] = 1
+    footprint[:, center_range+2] = 1
+    footprint[:, center_range-3] = 1
+    footprint[:, center_range+3] = 1
+    footprint[:, center_range-4] = 1
+    footprint[:, center_range+4] = 1
+
+    return footprint
+
 def cfar_2d(rdm, guard_size, window_size, alpha, 
                      use_os_cfar, os_percentile,
                      min_distance):
@@ -567,17 +709,27 @@ def cfar_2d(rdm, guard_size, window_size, alpha,
     # Convertir le percentile en indice normalisé [0,1]
     os_idx = os_percentile / 100.0
 
-    # Utiliser OS-CFAR avec analyse orthogonale
-    mask, thresholds = os_cfarv2(
+    start_time = time.time()
+    mask, thresholds = ca_cfar_convolve(
         rdm, 
         guard_size_doppler=guard_size[0],
         guard_size_range=guard_size[1],
         window_size_doppler=window_size[0], 
         window_size_range=window_size[1],
-        alpha=alpha, 
-        ordered_statistic_idx=os_idx
+        alpha=alpha
     )
-    
+    end_time = time.time()
+    print("Execution time convolve ca_cfar:", end_time - start_time, "seconds")
+
+    # Define a star-shaped footprint (this one is a 3x3 example)
+    # footprint = create_star_shaped_footprint([3*x for x in window_size])
+    # print("Footprint shape:\n", footprint)
+
+    # Apply the local maximum filter using the star-shaped footprint
+    # local_max = rdm == maximum_filter(rdm, footprint=footprint, mode='constant')
+
+    # Combine the CFAR mask with the local maximum mask
+    # mask = mask & local_max  # Only keep the local maxima that are CFAR detections
     # Extraction et fusion des cibles
     targets = extract_targets_from_cfar(
         rdm, 
@@ -588,7 +740,7 @@ def cfar_2d(rdm, guard_size, window_size, alpha,
     
     return targets, mask, thresholds
 
-def osca_cfar_2d(rdm, window_size, alpha, 
+def cfar_2d_osca(rdm, guard_size, window_size, alpha, 
                      use_os_cfar, os_percentile,
                      min_distance):
     # Convertir le percentile en indice normalisé [0,1]
@@ -597,6 +749,8 @@ def osca_cfar_2d(rdm, window_size, alpha,
     # Utiliser OS-CFAR avec analyse orthogonale
     mask, thresholds = osca_cfar(
         rdm, 
+        guard_size_doppler=guard_size[0],
+        guard_size_range=guard_size[1],
         window_size_doppler=window_size[0], 
         window_size_range=window_size[1],
         alpha=alpha, 
