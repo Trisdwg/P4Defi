@@ -228,8 +228,8 @@ def plot_multi_target_rdms(data_file, guard_size=(30, 30), window_size=(30, 20),
         else:
             plt.show()
 
-def plot_multi_target_rdmsv2(data_file, guard_size=(10,11), window_size=(30, 10), alpha = 13.0, 
-                           os_percentile = 99, min_distance=(20, 15), save_path = None, 
+def plot_multi_target_rdmsv2(data_file, guard_size=(10,11), window_size=(40, 10), alpha = 10.0, 
+                           os_percentile = 99, min_distance=(30, 15), save_path = None, 
                            anim = False, frame_idx = 0):
     
     """Visualise les RDM (4 canaux) et les cibles CFAR.
@@ -252,6 +252,101 @@ def plot_multi_target_rdmsv2(data_file, guard_size=(10,11), window_size=(30, 10)
                 rdm,
                 guard_size=guard_size,
                 window_size=window_size,
+                alpha=alpha,
+                use_os_cfar=True,
+                os_percentile=os_percentile,
+                min_distance=min_distance,
+            )
+            phys_pts = targets_to_physical_coords(targets, delta_r, delta_v, n_doppler, ch)
+
+            doppler_bins = np.arange(n_doppler) - n_doppler // 2
+            ranges_m = np.arange(n_range) * delta_r - Offset[ch]
+            vels_mps = doppler_bins * delta_v
+
+            im = ax.images[0]
+            im.set_data(rdm)
+            im.set_clim(vmin=rdm.min(), vmax=rdm.max())
+            ax.set_title(f"Canal {ch} – {len(phys_pts)} cible(s) – Frame {frame+1}/{N_frame}")
+
+            scat = ax.collections[0]
+            if phys_pts.size:
+                scat.set_offsets(phys_pts)
+            else:
+                scat.set_offsets(np.empty((0, 2)))
+
+    # ─── création figure de base ────────────────────────────────────────────
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    axes = axes.flatten()
+
+    for ch, ax in enumerate(axes):
+        # placeholder, sera mis à jour par _draw
+        dummy = np.zeros((n_doppler, n_range))
+        doppler_bins = np.arange(n_doppler) - n_doppler // 2
+        ranges_m = np.arange(n_range) * delta_r - Offset[ch]
+        vels_mps = doppler_bins * delta_v
+        im = ax.imshow(
+            dummy,
+            cmap="jet",
+            origin="lower",
+            extent=[ranges_m[0], ranges_m[-1], vels_mps[0], vels_mps[-1]],
+            aspect="auto",
+        )
+        fig.colorbar(im, ax=ax, shrink=0.85)
+        scat = ax.scatter([], [], edgecolors="white", facecolors="none", s=60, linewidths=1.5)
+        ax.set_xlabel("Distance (m)")
+        ax.set_ylabel("Vitesse (m/s)")
+
+    # ─── mode animation ou image fixe ───────────────────────────────────────
+    if anim:
+        import matplotlib.animation as animation
+
+        def _update(frame):
+            _draw(axes, frame)
+            return [child for ax in axes for child in (ax.images + ax.collections)]
+
+        ani = animation.FuncAnimation(
+            fig, _update, frames=range(N_frame), interval=200, blit=True, repeat=True
+        )
+        plt.tight_layout()
+        if save_path:
+            ani.save(save_path, writer="pillow", fps=5)
+            print(f"Animation sauvegardée → {save_path}")
+        else:
+            plt.show()
+    else:
+        frame_idx = np.clip(frame_idx, 0, N_frame - 1)
+        _draw(axes, frame_idx)
+        plt.tight_layout()
+        if save_path:
+            fig.savefig(save_path, dpi=150)
+            print(f"Figure sauvegardée → {save_path}")
+        else:
+            plt.show()
+
+def plot_multi_target_rdms_osca(data_file, guard_size=(10,11), window_size=(40, 10), alpha = 7.0, 
+                           os_percentile = 80, min_distance=(30, 15), save_path = None, 
+                           anim = False, frame_idx = 0):
+    
+    """Visualise les RDM (4 canaux) et les cibles CFAR.
+
+    Si *anim* est **True**, crée un ``FuncAnimation`` sur toutes les frames.
+    Sinon, affiche/sauvegarde la frame ``frame_idx``.
+    """
+
+    # ─── infos fichier & résolutions ─────────────────────────────────────────
+    data, f0, B, Ms, Mc, Ts, Tc, N_frame, N_v, N_r, delta_r, delta_v = load_data_info(data_file)
+    n_doppler, n_range = Processor.compute_RDM(data_file, 0)[0].shape
+
+    # ─── helper interne pour un affichage d'une frame ───────────────────────
+    def _draw(axs, frame: int):
+        print(frame)
+        RDMs = Processor.compute_RDM(data_file, frame)
+        for ch, ax in enumerate(axs):
+            rdm = RDMs[ch]
+            targets, mask, _ = Processor.cfar_2d_osca(
+                rdm,
+                window_size=window_size,
+                guard_size=guard_size,
                 alpha=alpha,
                 use_os_cfar=True,
                 os_percentile=os_percentile,
@@ -492,7 +587,7 @@ def main():
     visualization_mode = "multi_targetv2"  # or "basic_rdm", "trajectory_kalman"
     
     # Animation flag - if True, creates animation, otherwise static plot
-    anim = False
+    anim = True
     
     # Save path - set to None to display plot instead of saving
     save_path = None #"data/30-04/marche 2-15m.gif"  # or "output.gif" for animations, "output.png" for static plots
@@ -514,6 +609,8 @@ def main():
     elif visualization_mode == "multi_targetv2":
         plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path)
 
+    elif visualization_mode == "multi_targetosca":
+        plot_multi_target_rdms_osca(data_file, anim = anim, save_path = save_path)
     
     elif visualization_mode == "trajectory_kalman":
         # Always animation for trajectory
