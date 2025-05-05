@@ -390,7 +390,9 @@ kalman_params = {
     'H' : np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]),
     'R' : np.array([[3,0,0,0],[0,3,0,0],[0,0,5,0],[0,0,0,5]])
 }
-
+non_official = []
+official = []
+retired = []
 class tracker:
     def __init__(self, id, kalman_x, kalman_P, history) :
         self.id = id
@@ -415,7 +417,8 @@ class tracker:
         return self.kalman_x, self.kalman_P
     
     def __str__(self):
-        return f"Tracker ID: {self.id}, Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P}, Kalman Predicted State: {self.kalman_xp}, Kalman Predicted Covariance: {self.kalman_Pp}, History: {self.history}, Misses: {self.misses}, Non-official Count: {self.non_official_count}, Official Count: {self.official_count}"
+        return f"Tracker ID: {self.id},\n Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P},\n Kalman Predicted State: {self.kalman_xp}, Kalman Predicted Covariance: {self.kalman_Pp}, \n History: {self.history}, \n Misses: {self.misses}, Non-official Count: {self.non_official_count}, Official Count: {self.official_count},\n\n"
+    
 
 def extract_all_targets(RDM_frame):
     """Retourne une liste à 4 entrées (une par canal) contenant
@@ -450,16 +453,12 @@ def tracking_init(file) :
     RDM = compute_RDM(file, 0)
     all_tragets = extract_all_targets(RDM)
     tracks = make_intraframe_tracks(all_tragets)
-    print("Nombre de tracks : ", len(tracks))
-    print(tracks)
-    non_official = []
     for i, track in enumerate(tracks):
         non_official.append(tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), [track]))
     return non_official
 
 
 from scipy.spatial.distance import cdist
-
 MAX_GATING_DIST_4D = 3.0                          # seuil en 4‑D
 
 def tracking_update(non_official, frame_idx, file, official=None):
@@ -501,12 +500,23 @@ def tracking_update(non_official, frame_idx, file, official=None):
             all_trk[i].non_official_count += 1
         else:                       # appartient à la liste official
             all_trk[i].official_count += 1
-
+    
+    for tracker in all_trk:
+        if tracker.misses > 0.1 * (tracker.non_official_count + tracker.official_count):
+            if (tracker in non_official):
+                non_official.remove(tracker)
+            else :
+                retired.append(tracker)
+                official.remove(tracker)
+        elif tracker.non_official_count > 10 and tracker.misses < 0.1 * tracker.non_official_count:
+            tracker.non_official_count = 0
+            non_official.remove(tracker)
+            official.append(tracker)
 
     
 non_official = tracking_init("data/30-04/marche 2-15m.npz")
 print("Initialisation des tracks : ", non_official[0])
 print("Initialisation des tracks 2: ", non_official[1])
-nearest_neighbor(non_official, 1, "data/30-04/marche 2-15m.npz")
+tracking_update(non_official, 1, "data/30-04/marche 2-15m.npz")
 print("nearest neighbor : ", non_official[0])
 print("nearest neighbor 2 : ", non_official[1])
