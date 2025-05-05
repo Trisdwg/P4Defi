@@ -864,19 +864,26 @@ def compute_track_position_and_speed(track):
 
     return [(point_est[0],point_est[1]),(speed_est[0],speed_est[1])]
 
-def kalman_multicible(trackPrevious, kalman_P, trackMeasure):
+deltaTFrame = Mc * Tc
+kalman_params = {
+    'F' : np.array([[1,0,deltaTFrame,0],[0,1,0,deltaTFrame],[0,0,1,0],[0,0,0,1]]),
+    'Q' : np.array([[0,0,0,0],[0,0,0,0],[0,0,0.1,0],[0,0,0,0.1]]),
+    'H' : np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]),
+    'R' : np.array([[3,0,0,0],[0,3,0,0],[0,0,5,0],[0,0,0,5]])
+}
+
+def kalman_multicible_init(trackPrevious, kalman_P, trackMeasure):
 
     #calcul du kalman_x à partir du track
     pos_speed_est = compute_track_position_and_speed(trackPrevious)
-    kalman_x = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][0]])
+    kalman_x = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][1]])
     pos_speed_est = compute_track_position_and_speed(trackMeasure)
-    kalman_z = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][0]])
+    kalman_z = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][1]])
 
-    deltaTFrame = Mc * Tc
-    kalman_F = np.array([[1,0,deltaTFrame,0],[0,1,0,deltaTFrame],[0,0,1,0],[0,0,0,1]])
-    kalman_Q = np.array([[0,0,0,0],[0,0,0,0],[0,0,0.1,0],[0,0,0,0.1]])
-    kalman_H = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]])
-    kalman_R = np.array([[3,0,0,0],[0,3,0,0],[0,0,5,0],[0,0,0,5]])
+    kalman_F = kalman_params['F']
+    kalman_Q = kalman_params['Q']
+    kalman_H = kalman_params['H']
+    kalman_R = kalman_params['R']
     kalman_xp = kalman_F @ kalman_x
     kalman_Pp = kalman_F @ kalman_P @ kalman_F.T + kalman_Q
 
@@ -896,23 +903,23 @@ def kalman_multicible_pred(track, kalman_P):
 
     #calcul du kalman_x à partir du track
     pos_speed_est = compute_track_position_and_speed(track)
-    kalman_x = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][0]])
+    kalman_x = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][1]])
 
-    deltaTFrame = Mc * Tc
-    kalman_F = np.array([[1,0,deltaTFrame,0],[0,1,0,deltaTFrame],[0,0,1,0],[0,0,0,1]])
-    kalman_Q = np.array([[0,0,0,0],[0,0,0,0],[0,0,0.1,0],[0,0,0,0.1]])
-    kalman_H = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]])
-    kalman_R = np.array([[3,0,0,0],[0,3,0,0],[0,0,5,0],[0,0,0,5]])
+    kalman_F = kalman_params['F']
+    kalman_Q = kalman_params['Q']
+    kalman_H = kalman_params['H']
+    kalman_R = kalman_params['R']
     kalman_xp = kalman_F @ kalman_x
     kalman_Pp = kalman_F @ kalman_P @ kalman_F.T + kalman_Q
 
-    result = np.array([])
+    result = []
     for q in range(4):
         dp = (kalman_xp[0]**2+kalman_xp[1]**2)**(1/2) + ((kalman_xp[0]-ANTENNA_POS[q][0])**2 + (kalman_xp[1]-ANTENNA_POS[q][1])**2)**(1/2)
         vp = 0.5 * ((np.array([kalman_xp[0]-ANTENNA_POS[q][0], kalman_xp[1]-ANTENNA_POS[q][1]]) @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0]-ANTENNA_POS[q][0])**2+(kalman_xp[1]-ANTENNA_POS[q][1])**2)) +
                     (kalman_xp[:2] @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0])**2+(kalman_xp[1])**2)))
-        result = np.append(result, (vp,dp/2))
-    return result, kalman_P
+        result.append((vp,dp/2))
+
+    return result, kalman_Pp
 
 from itertools import product
 
