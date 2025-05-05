@@ -415,7 +415,7 @@ class tracker:
         return self.kalman_x, self.kalman_P
     
     def __str__(self):
-        return f"Tracker ID: {self.id}, Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P}, Kalman Predicted State: {self.kalman_xp}, Kalman Predicted Covariance: {self.kalman_Pp}, History: {self.history}, "
+        return f"Tracker ID: {self.id}, Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P}, Kalman Predicted State: {self.kalman_xp}, Kalman Predicted Covariance: {self.kalman_Pp}, History: {self.history}, Misses: {self.misses}, Non-official Count: {self.non_official_count}, Official Count: {self.official_count}"
 
 def extract_all_targets(RDM_frame):
     """Retourne une liste à 4 entrées (une par canal) contenant
@@ -457,18 +457,57 @@ def tracking_init(file) :
         non_official.append(tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), [track]))
     return non_official
 
-def nearest_neighbor(non_official, frame_idx, file,  official = None):
-    for i in range(len(non_official)):
-        non_official[i].kalman_predict()
-    for j in range(len(official)):
-        official[j].kalman_predict()
-    RDM = compute_RDM(file, frame_idx)
-    all_tragets = extract_all_targets(RDM)
-    tracks = make_intraframe_tracks(all_tragets)
-    
+
+from scipy.spatial.distance import cdist
+
+MAX_GATING_DIST_4D = 3.0                          # seuil en 4‑D
+
+def nearest_neighbor(non_official, frame_idx, file, official=None):
+    # 1. ---------- prédiction ----------
+    all_trk = non_official + (official or [])
+    for trk in all_trk:
+        trk.kalman_predict()
+
+    # 2. ---------- extraction des mesures ----------
+    RDM     = compute_RDM(file, frame_idx)
+    tracks  = make_intraframe_tracks(extract_all_targets(RDM))   # [(pos),(vel)]
+    if not tracks:
+        return
+
+    # 3. ---------- matrices 4‑D ----------
+
+    pred_state = np.vstack([trk.kalman_xp for trk in all_trk])     # (N,4)
+    meas_state = np.vstack([[p[0], p[1], v[0], v[1]] for p, v in tracks])  # (M,4)
+
+    D = cdist(pred_state, meas_state)                              # (N,M)
+
+    # 4. ---------- association NN ----------
+    assigned_cols = set()
+    for i, row in enumerate(D):
+        j = np.argmin(row)
+        if j in assigned_cols:
+            all_trk[i].misses += 1
+            continue
+
+        if row[j] < MAX_GATING_DIST_4D:
+            z = meas_state[j]
+            all_trk[i].kalman_update(z)
+            all_trk[i].history.append(tracks[j])
+            assigned_cols.add(j)
+        else:
+            all_trk[i].misses += 1
+
+        # ---------- compteurs ----------
+        if all_trk[i] in non_official:
+            all_trk[i].non_official_count += 1
+        else:                       # appartient à la liste official
+            all_trk[i].official_count += 1
+
+
     
 non_official = tracking_init("data/30-04/marche 2-15m.npz")
 print("Initialisation des tracks : ", non_official[0])
-for i in range(len(non_official)):
-    non_official[i].kalman_predict()
-print("Kalman predict : ", non_official[0])
+print("Initialisation des tracks 2: ", non_official[1])
+nearest_neighbor(non_official, 1, "data/30-04/marche 2-15m.npz")
+print("nearest neighbor : ", non_official[0])
+print("nearest neighbor 2 : ", non_official[1])
