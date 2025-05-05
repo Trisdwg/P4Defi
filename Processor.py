@@ -462,7 +462,7 @@ from scipy.spatial.distance import cdist
 
 MAX_GATING_DIST_4D = 3.0                          # seuil en 4‑D
 
-def nearest_neighbor(non_official, frame_idx, file, official=None):
+def tracking_update(non_official, frame_idx, file, official=None):
     # 1. ---------- prédiction ----------
     all_trk = non_official + (official or [])
     for trk in all_trk:
@@ -472,7 +472,8 @@ def nearest_neighbor(non_official, frame_idx, file, official=None):
     RDM     = compute_RDM(file, frame_idx)
     tracks  = make_intraframe_tracks(extract_all_targets(RDM))   # [(pos),(vel)]
     if not tracks:
-        return
+        for trk in all_trk:
+            trk.kalman_update(trk.kalman_xp)
 
     # 3. ---------- matrices 4‑D ----------
 
@@ -485,17 +486,15 @@ def nearest_neighbor(non_official, frame_idx, file, official=None):
     assigned_cols = set()
     for i, row in enumerate(D):
         j = np.argmin(row)
-        if j in assigned_cols:
-            all_trk[i].misses += 1
-            continue
 
         if row[j] < MAX_GATING_DIST_4D:
             z = meas_state[j]
-            all_trk[i].kalman_update(z)
-            all_trk[i].history.append(tracks[j])
-            assigned_cols.add(j)
         else:
+            z = pred_state[j]
             all_trk[i].misses += 1
+        
+        all_trk[i].kalman_update(z)
+        all_trk[i].history.append(tracks[j])
 
         # ---------- compteurs ----------
         if all_trk[i] in non_official:
