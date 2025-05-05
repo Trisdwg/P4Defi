@@ -890,10 +890,7 @@ def kalman_multicible(trackPrevious, kalman_P, trackMeasure):
         result.append((vp,dp/2))
     return result
 
-from itertools import product
-
 from itertools import product, combinations
-import numpy as np   # si ce n’est pas déjà importé
 
 def extract_all_targets(RDM_frame):
     """Retourne une liste à 4 entrées (une par canal) contenant
