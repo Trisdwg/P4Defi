@@ -833,6 +833,63 @@ def visualize_cfar_results(rdm, mask, thresholds, targets=None, figsize=(12, 10)
     plt.tight_layout()
     return fig
 
+def compute_track_position_and_speed(track):
+    d_q = [track[i][1] for i in range(len(track))]
+    v_q = [track[i][0] for i in range(len(track))]
+    def diff(p):
+        x,y = p
+        res = []
+        for q,dmes in enumerate(d_q):
+            d = (x**2+y**2)**(1/2) + ((x-ANTENNA_POS[q][0])**2 + (y-ANTENNA_POS[q][1])**2)**(1/2)
+            res.append(dmes-d)
+        return res
+    
+    x0 = [0.0,0.0]
+    point_est = least_squares(diff,x0,loss='cauchy').x
+
+    N = np.fromfunction(
+        lambda q, i: 0.5 * (
+            (point_est[i.astype(int)] - ANTENNA_POS[q.astype(int), i.astype(int)]) *
+            (1 / np.sqrt((point_est[0] - ANTENNA_POS[q.astype(int), 0])**2 + (point_est[1] - ANTENNA_POS[q.astype(int), 1])**2)) +
+            point_est[i.astype(int)] *
+            (1 / np.sqrt(point_est[0]**2 + point_est[1]**2))
+        ),
+        (len(track), 2),
+        dtype=int
+    )
+
+    speed_est = np.linalg.inv(N.T @ N) @ N.T @ v_q
+
+    return [(point_est[0],point_est[1]),(speed_est[0],speed_est[1])]
+
+def kalman_multicible(trackPrevious, kalman_P, trackMeasure):
+
+    #calcul du kalman_x à partir du track
+    pos_speed_est = compute_track_position_and_speed(trackPrevious)
+    kalman_x = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][0]])
+    pos_speed_est = compute_track_position_and_speed(trackMeasure)
+    kalman_z = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][0]])
+
+    deltaTFrame = Mc * Tc
+    kalman_F = np.array([[1,0,deltaTFrame,0],[0,1,0,deltaTFrame],[0,0,1,0],[0,0,0,1]])
+    kalman_Q = np.array([[0,0,0,0],[0,0,0,0],[0,0,0.1,0],[0,0,0,0.1]])
+    kalman_H = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]])
+    kalman_R = np.array([[3,0,0,0],[0,3,0,0],[0,0,5,0],[0,0,0,5]])
+    kalman_xp = kalman_F @ kalman_x
+    kalman_Pp = kalman_F @ kalman_P @ kalman_F.T + kalman_Q
+
+    kalman_K = kalman_Pp @ kalman_H.T @ np.linalg.inv(kalman_H @ kalman_P @ kalman_H.T + kalman_R)
+    kalman_x = kalman_xp + kalman_K @ (kalman_z - kalman_H @ kalman_xp)
+    kalman_P = kalman_Pp - kalman_K @ kalman_H @ kalman_Pp
+
+    result = []
+    for q in range(4):
+        dp = (kalman_xp[0]**2+kalman_xp[1]**2)**(1/2) + ((kalman_xp[0]-ANTENNA_POS[q][0])**2 + (kalman_xp[1]-ANTENNA_POS[q][1])**2)**(1/2)
+        vp = 0.5 * ((np.array([kalman_xp[0]-ANTENNA_POS[q][0], kalman_xp[1]-ANTENNA_POS[q][1]]) @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0]-ANTENNA_POS[q][0])**2+(kalman_xp[1]-ANTENNA_POS[q][1])**2)) +
+                    (kalman_xp[:2] @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0])**2+(kalman_xp[1])**2)))
+        result.append((vp,dp/2))
+    return result
+
 from itertools import product
 
 from itertools import product, combinations
