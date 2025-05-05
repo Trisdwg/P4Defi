@@ -490,14 +490,6 @@ def main():
         'kalman_p': np.eye(4) * 1,          # Initial covariance
         'outlier_radius':100.0                  # Outlier radius
     }
-
-    track = Processor.initialize_tracker(data_file)
-    print(len(track[0]))
-    print(len(track[1]))
-    print(len(track['1pk']))
-    print(track[0][0])
-    print(track[1][0])
-    print(track['1pk'][0])
     
     # Choose visualization based on mode
     if visualization_mode == "basic_rdm":
@@ -508,7 +500,7 @@ def main():
 
     elif visualization_mode == "multi_targetv2":
         plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=0)
-        plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=1)
+        # plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=1)
     
     elif visualization_mode == "trajectory_kalman":
         # Always animation for trajectory

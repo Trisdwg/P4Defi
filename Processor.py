@@ -245,7 +245,6 @@ def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
 
     return mask, thresholds
 
-
 def extract_targets_from_cfar(rdm, mask,
                               min_distance_doppler=20,
                               min_distance_range=10,
@@ -307,9 +306,7 @@ def extract_targets_from_cfar(rdm, mask,
 
     return targets
 
-def cfar_2d(rdm, guard_size, window_size, alpha, 
-                     use_os_cfar, os_percentile,
-                     min_distance):
+def cfar_2d(rdm):
     """
     CFAR 2D adaptatif qui combine CA-CFAR et OS-CFAR avec détection 
     d'asymétrie pour éliminer les lobes secondaires.
@@ -328,17 +325,10 @@ def cfar_2d(rdm, guard_size, window_size, alpha,
     - mask: Masque binaire des détections
     - thresholds: Matrice des seuils calculés
     """
-    # Convertir le percentile en indice normalisé [0,1]
-    os_idx = os_percentile / 100.0
 
     start_time = time.time()
     mask, thresholds = ca_cfar_convolve(
         rdm, 
-        guard_size_doppler=guard_size[0],
-        guard_size_range=guard_size[1],
-        window_size_doppler=window_size[0], 
-        window_size_range=window_size[1],
-        alpha=alpha
     )
     end_time = time.time()
     print("Execution time convolve ca_cfar:", end_time - start_time, "seconds")
@@ -356,67 +346,9 @@ def cfar_2d(rdm, guard_size, window_size, alpha,
     targets = extract_targets_from_cfar(
         rdm, 
         mask, 
-        min_distance_doppler=min_distance[0], 
-        min_distance_range=min_distance[1]
     )
     
     return targets, mask, thresholds
-
-
-def visualize_cfar_results(rdm, mask, thresholds, targets=None, figsize=(12, 10)):
-    """
-    Visualisation des résultats CFAR: données originales, seuil et détections.
-    
-    Arguments:
-    - rdm: Matrice Range-Doppler originale
-    - mask: Masque binaire des détections
-    - thresholds: Matrice des seuils calculés
-    - targets: Liste optionnelle des cibles extraites
-    - figsize: Taille de la figure
-    """
-
-    rdm_display = rdm
-    thresholds_display = thresholds
-    vmin = None
-    vmax = None
-
-    fig, axes = plt.subplots(2, 2, figsize=figsize)
-    
-    # Affichage RDM originale
-    im0 = axes[0, 0].imshow(rdm_display, aspect='auto', cmap='jet', vmin=vmin, vmax=vmax)
-    axes[0, 0].set_title('RDM Originale')
-    plt.colorbar(im0, ax=axes[0, 0])
-    
-    # Affichage des seuils CFAR
-    im1 = axes[0, 1].imshow(thresholds_display, aspect='auto', cmap='jet', vmin=vmin, vmax=vmax)
-    axes[0, 1].set_title('Seuils CFAR')
-    plt.colorbar(im1, ax=axes[0, 1])
-    
-    # Affichage des détections
-    im2 = axes[1, 0].imshow(rdm_display, aspect='auto', cmap='jet', vmin=vmin, vmax=vmax)
-    axes[1, 0].contour(mask, colors='r', linewidths=1)
-    axes[1, 0].set_title('Détections CFAR')
-    plt.colorbar(im2, ax=axes[1, 0])
-    
-    # Affichage RDM avec cibles extraites
-    im3 = axes[1, 1].imshow(rdm_display, aspect='auto', cmap='jet', vmin=vmin, vmax=vmax)
-    axes[1, 1].set_title('Cibles Extraites')
-    plt.colorbar(im3, ax=axes[1, 1])
-    
-    # Afficher les cibles si fournies
-    if targets:
-        for (d, r), amp in targets:
-            axes[1, 1].plot(r, d, 'rx', markersize=10)
-            amp_text = f"{amp:.2e}"
-            axes[1, 1].annotate(amp_text, (r+2, d+2), color='white', fontsize=8)
-    
-    # Étiquettes communes
-    for ax in axes.flat:
-        ax.set_xlabel('Range (bins)')
-        ax.set_ylabel('Doppler (bins)')
-    
-    plt.tight_layout()
-    return fig
 
 def compute_track_position_and_speed(track):
     d_q = [2*track[i][1] for i in range(len(track))] #*2 car r -> d
@@ -483,37 +415,6 @@ class tracker:
     def __str__(self):
         return f"Tracker ID: {self.id}, Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P}, History: {self.history}"
 
-def compute_track_position_and_speed(track):
-    d_q = [2*track[i][1] for i in range(len(track))] #*2 car r -> d
-    v_q = [track[i][0] for i in range(len(track))]
-    def diff(p):
-        x,y = p
-        res = []
-        for q,dmes in enumerate(d_q):
-            d = (x**2+y**2)**(1/2) + ((x-ANTENNA_POS[q][0])**2 + (y-ANTENNA_POS[q][1])**2)**(1/2)
-            res.append(dmes-d)
-        return res
-    
-    x0 = [0.0,0.0]
-    point_est = least_squares(diff,x0,loss='linear').x
-
-    speed_est = [None, None]
-    if (point_est[0] != 0.0 and point_est[1] != 0.0):
-        N = np.fromfunction(
-            lambda q, i: 0.5 * (
-                (point_est[i.astype(int)] - ANTENNA_POS[q.astype(int), i.astype(int)]) *
-                (1 / np.sqrt((point_est[0] - ANTENNA_POS[q.astype(int), 0])**2 + (point_est[1] - ANTENNA_POS[q.astype(int), 1])**2)) +
-                point_est[i.astype(int)] *
-                (1 / np.sqrt(point_est[0]**2 + point_est[1]**2))
-            ),
-            (len(track), 2),
-            dtype=int
-        )
-
-        speed_est = np.linalg.inv(N.T @ N) @ N.T @ v_q
-
-    return [(point_est[0],point_est[1]),(speed_est[0],speed_est[1])]
-
 def extract_all_targets(RDM_frame):
     """Retourne une liste à 4 entrées (une par canal) contenant
     soit la liste [(v, r), …] soit [None] si pas de cible."""
@@ -539,7 +440,7 @@ def make_intraframe_tracks(all_targets):
         if(track_pos_speed[0][0] == 0.0 and track_pos_speed[0][1] == 0.0 and track_pos_speed[1][0] == None and track_pos_speed[1][1] == None):
             acceptableTrack = False
         if 2 <= len(track) <= 4 and acceptableTrack:
-            tracks.append(track)
+            tracks.append(track_pos_speed)
     return tracks
 
     
@@ -552,6 +453,8 @@ def tracking_init(file) :
     non_official = []
     for i, track in enumerate(tracks):
         non_official.append(tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), [track]))
-    return non_official[0]
+    return non_official
 
-print(tracking_init("data/30-04/marche 2-15m.npz"))
+no = tracking_init("data/30-04/marche 2-15m.npz")
+print(no[0])
+print(no[1])
