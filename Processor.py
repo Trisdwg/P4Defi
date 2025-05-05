@@ -836,48 +836,68 @@ def visualize_cfar_results(rdm, mask, thresholds, targets=None, figsize=(12, 10)
 
 from itertools import product
 
-def initialize_tracker(RDM):
-    """
-    Initialise la structure :
-        {0: [[(v0,r0),(v1,r1)],   # track 0
-             [(v0,r0),(v1,r1),(v2,r2)],          # track 1
-             ...
-            ]
-        }
-    """ 
-    all_targets = [[], [], [], []]   # liste des cibles par canal
+from itertools import product, combinations
+import numpy as np   # si ce n’est pas déjà importé
 
+def extract_all_targets(RDM_frame):
+    """Retourne une liste à 4 entrées (une par canal) contenant
+    soit la liste [(v_idx, r_idx), …] soit [None] si pas de cible."""
+    all_t = [[] for _ in range(4)]
     for ch in range(4):
-        mask, _ = ca_cfar_convolve(RDM[ch])
-        targets = extract_targets_from_cfar(RDM[ch], mask)
-        # on ne garde que le tuple (v,r) retourné par les fonctions maison
-        all_targets[ch].extend(t[0] for t in targets)
+        mask, _ = ca_cfar_convolve(RDM_frame[ch])
+        targets = extract_targets_from_cfar(RDM_frame[ch], mask)
+        for (v_idx, r_idx) in (t[0] for t in targets):
+            all_t[ch].append((v_idx, r_idx))
+    # remplace les listes vides par [None] pour que product() les traite
+    return [chan if chan else [None] for chan in all_t]
 
-    # Remplace les canaux vides par [None] pour permettre le produit cartésien
-    all_targets = [chan if chan else [None] for chan in all_targets]
-
+def make_intraframe_tracks(all_targets):
+    """Associe entre eux les canaux d’une même frame.
+       Une track = liste de (v_idx, r_idx) ayant >=2 canaux renseignés."""
     tracks = []
-    for combo in product(*all_targets):
-        # On enlève les None ; on impose 2–4 vraies détections par track
-        real_hits = [x for x in combo if x is not None]
-        if 2 <= len(real_hits) <= 4:
-            tracks.append(real_hits)
-    
+    for combo in product(*all_targets):          # 4‑uplet (ou None)
+        track = [combo[ch] for ch in range(4) if combo[ch] is not None]
+        if 2 <= len(track) <= 4:
+            tracks.append(track)
+    return tracks                # [[(v,r), …], …]
+
+def initialize_tracker(file):
     tracker = {}
-    tracker[0] = tracks
-    # Clé = indice de la frame d'init ; valeur = liste des tracks
+
+    # -------- frame 0 --------
+    RDM0 = compute_RDM(file, frame_idx=0)
+    all_targets0 = extract_all_targets(RDM0)
+    tracks0 = make_intraframe_tracks(all_targets0)
+    tracker[0] = tracks0
+
+    # -------- frame 1 --------
+    RDM1 = compute_RDM(file, frame_idx=1)
+    all_targets1 = extract_all_targets(RDM1)
+    tracks1_intra = make_intraframe_tracks(all_targets1)
+
+    # Fabrique toutes les combinaisons “track0  +  track1”
+    # Chaque élément est [track0, track1]
+    inter_tracks = list(product(tracks0, tracks1_intra))
+    tracker[1] = [list(t) for t in inter_tracks]
+
     return tracker
+ 
 
-def maintain_tracker(tracker, RDM, frame_idx) :
-    all_targets = [[], [], [], []]   # liste des cibles par canal
-    
+def maintain_tracker(tracker, RDM, frame_idx, f0):
+    """Met à jour le dic ‘tracker’, renvoie en plus la liste d’états estimés."""
+    # 4.1  détections de la frame courante
+    detections = [[], [], [], []]
     for ch in range(4):
-        mask, _ = ca_cfar_convolve(RDM[ch])
-        targets = extract_targets_from_cfar(RDM[ch], mask)
-        # on ne garde que le tuple (v,r) retourné par les fonctions maison
-        all_targets[ch].extend(t[0] for t in targets)
-    
+        mask, _  = ca_cfar_convolve(RDM[ch])
+        for (v_idx, r_idx) in (t[0] for t in extract_targets_from_cfar(RDM[ch], mask)):
+            detections[ch].append((v_idx, r_idx))
 
-
-
+    # 4.2  association ultra‑simple : on fait un produit cartésien comme à l’init
+    detections = [chan if chan else [None] for chan in detections]
+    new_tracks = []
+    for combo in product(*detections):
+        track = {ch: combo[ch] for ch in range(4) if combo[ch] is not None}
+        if 2 <= len(track) <= 4:
+            new_tracks.append(track)
+    tracker[frame_idx] = new_tracks
 
