@@ -879,6 +879,9 @@ def kalman_multicible_init(trackPrevious, kalman_P, trackMeasure):
     kalman_x = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][1]])
     pos_speed_est = compute_track_position_and_speed(trackMeasure)
     kalman_z = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][1]])
+    if((kalman_x[0] == 0.0 and kalman_x[1] == 0.0 and kalman_x[2] == None and kalman_x[3] == None) or 
+       (kalman_z[0] == 0.0 and kalman_z[1] == 0.0 and kalman_z[2] == None and kalman_z[3] == None)):
+        return None, np.eye(4)*-1
 
     kalman_F = kalman_params['F']
     kalman_Q = kalman_params['Q']
@@ -893,9 +896,9 @@ def kalman_multicible_init(trackPrevious, kalman_P, trackMeasure):
 
     result = np.array([])
     for q in range(4):
-        dp = (kalman_xp[0]**2+kalman_xp[1]**2)**(1/2) + ((kalman_xp[0]-ANTENNA_POS[q][0])**2 + (kalman_xp[1]-ANTENNA_POS[q][1])**2)**(1/2)
-        vp = 0.5 * ((np.array([kalman_xp[0]-ANTENNA_POS[q][0], kalman_xp[1]-ANTENNA_POS[q][1]]) @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0]-ANTENNA_POS[q][0])**2+(kalman_xp[1]-ANTENNA_POS[q][1])**2)) +
-                    (kalman_xp[:2] @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0])**2+(kalman_xp[1])**2)))
+        dp = (kalman_x[0]**2+kalman_x[1]**2)**(1/2) + ((kalman_x[0]-ANTENNA_POS[q][0])**2 + (kalman_x[1]-ANTENNA_POS[q][1])**2)**(1/2)
+        vp = 0.5 * ((np.array([kalman_x[0]-ANTENNA_POS[q][0], kalman_x[1]-ANTENNA_POS[q][1]]) @ kalman_x[2:])*(1/np.sqrt((kalman_x[0]-ANTENNA_POS[q][0])**2+(kalman_x[1]-ANTENNA_POS[q][1])**2)) +
+                    (kalman_x[:2] @ kalman_x[2:])*(1/np.sqrt((kalman_x[0])**2+(kalman_x[1])**2)))
         result = np.append(result, (vp,dp/2))
     return result, kalman_P
 
@@ -907,8 +910,6 @@ def kalman_multicible_pred(track, kalman_P):
 
     kalman_F = kalman_params['F']
     kalman_Q = kalman_params['Q']
-    kalman_H = kalman_params['H']
-    kalman_R = kalman_params['R']
     kalman_xp = kalman_F @ kalman_x
     kalman_Pp = kalman_F @ kalman_P @ kalman_F.T + kalman_Q
 
@@ -945,10 +946,15 @@ def make_intraframe_tracks(all_targets):
     tracks = []
     for combo in product(*all_targets):          # 4‑uplet (ou None)
         track = [combo[ch] for ch in range(4) if combo[ch] is not None]
-        if 2 <= len(track) <= 4:
+        acceptableTrack = True
+        track_pos_speed = compute_track_position_and_speed(track)
+        if(track_pos_speed[0][0] == 0.0 and track_pos_speed[0][1] == 0.0 and track_pos_speed[1][0] == None and track_pos_speed[1][1] == None):
+            acceptableTrack = False
+        if 2 <= len(track) <= 4 and acceptableTrack:
             tracks.append(track)
     return tracks                # [[(v,r), …], …]
 
+import sys
 def initialize_tracker(file):
     tracker = {}
     
@@ -981,7 +987,24 @@ def initialize_tracker(file):
         # On ajoute le track0 seul à tracker[0]
         tracker[0].append(t0_t1[0])
         # On ajoute la paire [track0, track1] à tracker[1]
-        tracker[1].append(t0_t1)
+        tracker[1].append(t0_t1[1])
+    
+    ##### Partie 2: Kalman et cleanup #####
+    kalman_P = np.eye(4) * 1
+    postkalman = []
+    for i in range(len(tracker[0])):
+        # On initialise le Kalman pour chaque track
+        print("Initialisation Kalman pour le track", i)
+        prevtrack = tracker[0][i]
+        meastrack = tracker[1][i]
+        postkalmantrack, kalman_P = kalman_multicible_init(prevtrack, kalman_P, meastrack)
+        if postkalmantrack is None:
+            print("Track", i, "non valide, on le supprime.")
+            # On supprime le track de tracker[0] et tracker[1]
+            sys.exit()
+        else:
+            postkalman.append((postkalmantrack,kalman_P))
+    tracker['1pk'] = postkalman
     
     return tracker
  
