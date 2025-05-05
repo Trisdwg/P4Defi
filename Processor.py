@@ -920,23 +920,38 @@ def make_intraframe_tracks(all_targets):
 
 def initialize_tracker(file):
     tracker = {}
-
+    
     # -------- frame 0 --------
     RDM0 = compute_RDM(file, frame_idx=0)
     all_targets0 = extract_all_targets(RDM0)
     tracks0 = make_intraframe_tracks(all_targets0)
-    tracker[0] = tracks0
-
+    
+    # On stocke temporairement les tracks de la frame 0
+    temp_tracks0 = tracks0
+    
     # -------- frame 1 --------
     RDM1 = compute_RDM(file, frame_idx=1)
     all_targets1 = extract_all_targets(RDM1)
     tracks1_intra = make_intraframe_tracks(all_targets1)
-
-    # Fabrique toutes les combinaisons “track0  +  track1”
-    # Chaque élément est [track0, track1]
-    inter_tracks = list(product(tracks0, tracks1_intra))
-    tracker[1] = [list(t) for t in inter_tracks]
-
+    
+    # Fabrique toutes les combinaisons "track0 + track1"
+    inter_tracks = []
+    
+    # Pour chaque paire (track0, track1) du produit cartésien
+    for t0, t1 in product(temp_tracks0, tracks1_intra):
+        inter_tracks.append([t0, t1])
+    
+    # Maintenant, on réorganise tracker[0] pour qu'il corresponde à tracker[1]
+    # Pour chaque paire [track0, track1] dans inter_tracks, on extrait track0
+    tracker[0] = []
+    tracker[1] = []
+    
+    for t0_t1 in inter_tracks:
+        # On ajoute le track0 seul à tracker[0]
+        tracker[0].append(t0_t1[0])
+        # On ajoute la paire [track0, track1] à tracker[1]
+        tracker[1].append(t0_t1)
+    
     return tracker
  
 
