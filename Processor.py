@@ -921,8 +921,6 @@ def kalman_multicible_pred(track, kalman_P):
 
     return result, kalman_Pp
 
-from itertools import product
-
 from itertools import product, combinations
 
 def extract_all_targets(RDM_frame):
@@ -981,21 +979,21 @@ def initialize_tracker(file):
         # On ajoute le track0 seul à tracker[0]
         tracker[0].append(t0_t1[0])
         # On ajoute la paire [track0, track1] à tracker[1]
-        tracker[1].append(t0_t1)
+        tracker[1].append(t0_t1[1])
     
     return tracker
  
 
-def maintain_tracker(tracker, RDM, frame_idx, f0):
+def maintain_tracker(tracker, RDM, frame_idx, kalman_Pp, ):
     """Met à jour le dic ‘tracker’, renvoie en plus la liste d’états estimés."""
-    # 4.1  détections de la frame courante
+    # Détections de la frame courante
     detections = [[], [], [], []]
     for ch in range(4):
         mask, _  = ca_cfar_convolve(RDM[ch])
         for (v_idx, r_idx) in (t[0] for t in extract_targets_from_cfar(RDM[ch], mask)):
             detections[ch].append((v_idx, r_idx))
 
-    # 4.2  association ultra‑simple : on fait un produit cartésien comme à l’init
+    # Association de tous les points: on fait un produit cartésien comme à l’init
     detections = [chan if chan else [None] for chan in detections]
     new_tracks = []
     for combo in product(*detections):
@@ -1003,4 +1001,14 @@ def maintain_tracker(tracker, RDM, frame_idx, f0):
         if 2 <= len(track) <= 4:
             new_tracks.append(track)
     tracker[frame_idx] = new_tracks
+
+    # On prédit la frame k à partir de la frame k-1 via kalman_Pp
+    
+    # On compare les tracks tracker[frame_idx] de la frame avec ceux prédit au dessus
+
+    # On associe les tracks restants avec ceux de la frame précédente via les colonnes du tracker
+
+    
+
+
 
