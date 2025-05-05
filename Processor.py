@@ -864,6 +864,8 @@ def compute_track_position_and_speed(track):
 
     return [(point_est[0],point_est[1]),(speed_est[0],speed_est[1])]
 
+
+from itertools import product
 deltaTFrame = Mc * Tc
 kalman_params = {
     'F' : np.array([[1,0,deltaTFrame,0],[0,1,0,deltaTFrame],[0,0,1,0],[0,0,0,1]]),
@@ -872,57 +874,67 @@ kalman_params = {
     'R' : np.array([[3,0,0,0],[0,3,0,0],[0,0,5,0],[0,0,0,5]])
 }
 
-def kalman_multicible_init(trackPrevious, kalman_P, trackMeasure):
+class tracker:
+    def __init__(self, id, kalman_x, kalman_P, history) :
+        self.id = id
+        self.kalman_x = kalman_x
+        self.kalman_P = kalman_P
+        self.non_official_count = 0
+        self.misses = 0
+        self.official_count = 0
+        self.history = history 
+    
+    def kalman_predict(self):
+        self.kalman_xp = kalman_params['F'] @ self.kalman_x
+        self.kalman_Pp = kalman_params['F'] @ self.kalman_P @ kalman_params['F'].T + kalman_params['Q']
+        return self.kalman_xp, self.kalman_Pp
+    
+    def kalman_update(self, z):
+        kalman_K = self.kalman_Pp @ kalman_params['H'].T @ np.linalg.inv(kalman_params['H'] @ self.kalman_P @ kalman_params['H'].T + kalman_params['R'])
+        self.kalman_x = self.kalman_xp + kalman_K @ (z - kalman_params['H'] @ self.kalman_xp)
+        self.kalman_P = self.kalman_Pp - kalman_K @ kalman_params['H'] @ self.kalman_Pp
+        return self.kalman_x, self.kalman_P
+    
+def tracking_init(file) :
+    RDM = compute_RDM(file, 0)
+    all_tragets = extract_all_targets(RDM)
+    tracks = make_intraframe_tracks(all_tragets)
+    non_official = []
+    for i, track in enumerate(tracks):
+        non_official[i] = tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), [track])
+    return non_official
 
-    #calcul du kalman_x à partir du track
-    pos_speed_est = compute_track_position_and_speed(trackPrevious)
-    kalman_x = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][1]])
-    pos_speed_est = compute_track_position_and_speed(trackMeasure)
-    kalman_z = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][1]])
-    if((kalman_x[0] == 0.0 and kalman_x[1] == 0.0 and kalman_x[2] == None and kalman_x[3] == None) or 
-       (kalman_z[0] == 0.0 and kalman_z[1] == 0.0 and kalman_z[2] == None and kalman_z[3] == None)):
-        return None, np.eye(4)*-1
+    
+def compute_track_position_and_speed(track):
+    d_q = [2*track[i][1] for i in range(len(track))] #*2 car r -> d
+    v_q = [track[i][0] for i in range(len(track))]
+    def diff(p):
+        x,y = p
+        res = []
+        for q,dmes in enumerate(d_q):
+            d = (x**2+y**2)**(1/2) + ((x-ANTENNA_POS[q][0])**2 + (y-ANTENNA_POS[q][1])**2)**(1/2)
+            res.append(dmes-d)
+        return res
+    
+    x0 = [0.0,0.0]
+    point_est = least_squares(diff,x0,loss='linear').x
 
-    kalman_F = kalman_params['F']
-    kalman_Q = kalman_params['Q']
-    kalman_H = kalman_params['H']
-    kalman_R = kalman_params['R']
-    kalman_xp = kalman_F @ kalman_x
-    kalman_Pp = kalman_F @ kalman_P @ kalman_F.T + kalman_Q
+    speed_est = [None, None]
+    if (point_est[0] != 0.0 and point_est[1] != 0.0):
+        N = np.fromfunction(
+            lambda q, i: 0.5 * (
+                (point_est[i.astype(int)] - ANTENNA_POS[q.astype(int), i.astype(int)]) *
+                (1 / np.sqrt((point_est[0] - ANTENNA_POS[q.astype(int), 0])**2 + (point_est[1] - ANTENNA_POS[q.astype(int), 1])**2)) +
+                point_est[i.astype(int)] *
+                (1 / np.sqrt(point_est[0]**2 + point_est[1]**2))
+            ),
+            (len(track), 2),
+            dtype=int
+        )
 
-    kalman_K = kalman_Pp @ kalman_H.T @ np.linalg.inv(kalman_H @ kalman_P @ kalman_H.T + kalman_R)
-    kalman_x = kalman_xp + kalman_K @ (kalman_z - kalman_H @ kalman_xp)
-    kalman_P = kalman_Pp - kalman_K @ kalman_H @ kalman_Pp
+        speed_est = np.linalg.inv(N.T @ N) @ N.T @ v_q
 
-    result = np.array([])
-    for q in range(4):
-        dp = (kalman_x[0]**2+kalman_x[1]**2)**(1/2) + ((kalman_x[0]-ANTENNA_POS[q][0])**2 + (kalman_x[1]-ANTENNA_POS[q][1])**2)**(1/2)
-        vp = 0.5 * ((np.array([kalman_x[0]-ANTENNA_POS[q][0], kalman_x[1]-ANTENNA_POS[q][1]]) @ kalman_x[2:])*(1/np.sqrt((kalman_x[0]-ANTENNA_POS[q][0])**2+(kalman_x[1]-ANTENNA_POS[q][1])**2)) +
-                    (kalman_x[:2] @ kalman_x[2:])*(1/np.sqrt((kalman_x[0])**2+(kalman_x[1])**2)))
-        result = np.append(result, (vp,dp/2))
-    return result, kalman_P
-
-def kalman_multicible_pred(track, kalman_P):
-
-    #calcul du kalman_x à partir du track
-    pos_speed_est = compute_track_position_and_speed(track)
-    kalman_x = np.array([pos_speed_est[0][0], pos_speed_est[0][1], pos_speed_est[1][0], pos_speed_est[1][1]])
-
-    kalman_F = kalman_params['F']
-    kalman_Q = kalman_params['Q']
-    kalman_xp = kalman_F @ kalman_x
-    kalman_Pp = kalman_F @ kalman_P @ kalman_F.T + kalman_Q
-
-    result = []
-    for q in range(4):
-        dp = (kalman_xp[0]**2+kalman_xp[1]**2)**(1/2) + ((kalman_xp[0]-ANTENNA_POS[q][0])**2 + (kalman_xp[1]-ANTENNA_POS[q][1])**2)**(1/2)
-        vp = 0.5 * ((np.array([kalman_xp[0]-ANTENNA_POS[q][0], kalman_xp[1]-ANTENNA_POS[q][1]]) @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0]-ANTENNA_POS[q][0])**2+(kalman_xp[1]-ANTENNA_POS[q][1])**2)) +
-                    (kalman_xp[:2] @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0])**2+(kalman_xp[1])**2)))
-        result.append((vp,dp/2))
-
-    return result, kalman_Pp
-
-from itertools import product, combinations
+    return [(point_est[0],point_est[1]),(speed_est[0],speed_est[1])]
 
 def extract_all_targets(RDM_frame):
     """Retourne une liste à 4 entrées (une par canal) contenant
@@ -950,88 +962,4 @@ def make_intraframe_tracks(all_targets):
             acceptableTrack = False
         if 2 <= len(track) <= 4 and acceptableTrack:
             tracks.append(track)
-    return tracks                # [[(v,r), …], …]
-
-import sys
-def initialize_tracker(file):
-    tracker = {}
-    
-    # -------- frame 0 --------
-    RDM0 = compute_RDM(file, frame_idx=0)
-    all_targets0 = extract_all_targets(RDM0)
-    tracks0 = make_intraframe_tracks(all_targets0)
-    
-    # On stocke temporairement les tracks de la frame 0
-    temp_tracks0 = tracks0
-    
-    # -------- frame 1 --------
-    RDM1 = compute_RDM(file, frame_idx=1)
-    all_targets1 = extract_all_targets(RDM1)
-    tracks1_intra = make_intraframe_tracks(all_targets1)
-    
-    # Fabrique toutes les combinaisons "track0 + track1"
-    inter_tracks = []
-    
-    # Pour chaque paire (track0, track1) du produit cartésien
-    for t0, t1 in product(temp_tracks0, tracks1_intra):
-        inter_tracks.append([t0, t1])
-    
-    # Maintenant, on réorganise tracker[0] pour qu'il corresponde à tracker[1]
-    # Pour chaque paire [track0, track1] dans inter_tracks, on extrait track0
-    tracker[0] = []
-    tracker[1] = []
-    
-    for t0_t1 in inter_tracks:
-        # On ajoute le track0 seul à tracker[0]
-        tracker[0].append(t0_t1[0])
-        # On ajoute la paire [track0, track1] à tracker[1]
-        tracker[1].append(t0_t1[1])
-    
-    ##### Partie 2: Kalman et cleanup #####
-    kalman_P = np.eye(4) * 1
-    postkalman = []
-    for i in range(len(tracker[0])):
-        # On initialise le Kalman pour chaque track
-        print("Initialisation Kalman pour le track", i)
-        prevtrack = tracker[0][i]
-        meastrack = tracker[1][i]
-        postkalmantrack, kalman_P = kalman_multicible_init(prevtrack, kalman_P, meastrack)
-        if postkalmantrack is None:
-            print("Track", i, "non valide, on le supprime.")
-            # On supprime le track de tracker[0] et tracker[1]
-            sys.exit()
-        else:
-            postkalman.append((postkalmantrack,kalman_P))
-    tracker['1pk'] = postkalman
-    
-    return tracker
- 
-
-def maintain_tracker(tracker, RDM, frame_idx, kalman_Pp, ):
-    """Met à jour le dic ‘tracker’, renvoie en plus la liste d’états estimés."""
-    # Détections de la frame courante
-    detections = [[], [], [], []]
-    for ch in range(4):
-        mask, _  = ca_cfar_convolve(RDM[ch])
-        for (v_idx, r_idx) in (t[0] for t in extract_targets_from_cfar(RDM[ch], mask)):
-            detections[ch].append((v_idx, r_idx))
-
-    # Association de tous les points: on fait un produit cartésien comme à l’init
-    detections = [chan if chan else [None] for chan in detections]
-    new_tracks = []
-    for combo in product(*detections):
-        track = {ch: combo[ch] for ch in range(4) if combo[ch] is not None}
-        if 2 <= len(track) <= 4:
-            new_tracks.append(track)
-    tracker[frame_idx] = new_tracks
-
-    # On prédit la frame k à partir de la frame k-1 via kalman_Pp
-    
-    # On compare les tracks tracker[frame_idx] de la frame avec ceux prédit au dessus
-
-    # On associe les tracks restants avec ceux de la frame précédente via les colonnes du tracker
-
-    
-
-
-
+    return tracks
