@@ -394,6 +394,8 @@ kalman_params = {
 class tracker:
     def __init__(self, id, kalman_x, kalman_P, history) :
         self.id = id
+        self.kalman_xp = None
+        self.kalman_Pp = None
         self.kalman_x = kalman_x
         self.kalman_P = kalman_P
         self.non_official_count = 0
@@ -413,7 +415,7 @@ class tracker:
         return self.kalman_x, self.kalman_P
     
     def __str__(self):
-        return f"Tracker ID: {self.id}, Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P}, History: {self.history}"
+        return f"Tracker ID: {self.id}, Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P}, Kalman Predicted State: {self.kalman_xp}, Kalman Predicted Covariance: {self.kalman_Pp}, History: {self.history}, "
 
 def extract_all_targets(RDM_frame):
     """Retourne une liste à 4 entrées (une par canal) contenant
@@ -455,6 +457,18 @@ def tracking_init(file) :
         non_official.append(tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), [track]))
     return non_official
 
-no = tracking_init("data/30-04/marche 2-15m.npz")
-print(no[0])
-print(no[1])
+def nearest_neighbor(non_official, frame_idx, file,  official = None):
+    for i in range(len(non_official)):
+        non_official[i].kalman_predict()
+    for j in range(len(official)):
+        official[j].kalman_predict()
+    RDM = compute_RDM(file, frame_idx)
+    all_tragets = extract_all_targets(RDM)
+    tracks = make_intraframe_tracks(all_tragets)
+    
+    
+non_official = tracking_init("data/30-04/marche 2-15m.npz")
+print("Initialisation des tracks : ", non_official[0])
+for i in range(len(non_official)):
+    non_official[i].kalman_predict()
+print("Kalman predict : ", non_official[0])
