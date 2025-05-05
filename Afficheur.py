@@ -605,10 +605,12 @@ def main():
     for i in range(len(track[0])):
         print(f"Combination {i}:")
         result = Processor.compute_track_position_and_speed(track[0][i])
+        resultpred = Processor.kalman_multicible_pred(track[0][i], kalman_params['kalman_p'])
         positions_speeds = np.append(positions_speeds, result)
         for j in range(len(track[0][i])):
             print(f"Channel {j}: v {track[0][i][j][0]}, d {2*track[0][i][j][1]}")
         print(f"Result: x={result[0][0]}, y={result[0][1]}, vx={result[1][0]}, vy={result[1][1]}")
+        print(f"Predicted: x={resultpred[0][0]}, y={resultpred[0][1]}, vx={resultpred[1][0]}, vy={resultpred[1][1]}")
     # print("positions_speeds:")
     # print(positions_speeds)
     
