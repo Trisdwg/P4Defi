@@ -580,7 +580,7 @@ def plot_target_trajectory_with_kalman(
 
 def main():
     # File path - update with your data file
-    data_file = "data/30-04/calibration 1.npz"
+    data_file = "data/30-04/marche 2-15m.npz"
     
     # Visualization mode selection
     # Choose one of: "basic_rdm", "multi_target", "clean_iterations", "trajectory_kalman"
@@ -598,6 +598,19 @@ def main():
         'kalman_p': np.eye(4) * 1,          # Initial covariance
         'outlier_radius':100.0                  # Outlier radius
     }
+
+    track = Processor.initialize_tracker(data_file)
+    positions_speeds = np.array([])
+    print("track for first frame:")
+    for i in range(len(track[0])):
+        print(f"Combination {i}:")
+        result = Processor.compute_track_position_and_speed(track[0][i])
+        positions_speeds = np.append(positions_speeds, result)
+        for j in range(len(track[0][i])):
+            print(f"Channel {j}: v {track[0][i][j][0]}, d {2*track[0][i][j][1]}")
+        print(f"Result: x={result[0][0]}, y={result[0][1]}, vx={result[1][0]}, vy={result[1][1]}")
+    # print("positions_speeds:")
+    # print(positions_speeds)
     
     # Choose visualization based on mode
     if visualization_mode == "basic_rdm":
@@ -607,7 +620,8 @@ def main():
         plot_multi_target_rdms(data_file, anim = anim, save_path = None)
 
     elif visualization_mode == "multi_targetv2":
-        plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=3)
+        plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=0)
+        plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=1)
 
     elif visualization_mode == "multi_targetosca":
         plot_multi_target_rdms_osca(data_file, anim = anim, save_path = save_path)

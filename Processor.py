@@ -11,14 +11,14 @@ import time
 # Paramètres physiques 
 # ===========================================================================
 
-OFFSETS = np.asarray([7.33982036, 7.3548503, 10.86700599, 3.64670659])
 ANTENNA_POS = np.asarray([
     [-0.35, 2.7],     # Channel 0 (common focus)
     [1.8, 0.5],   # Channel 1
     [5.1, -2.3],    # Channel 2
     [0.0, 0.0],     # Channel 3
 ])
-
+OFFSETS = np.asarray([ 7.33982036,  7.3548503 , 10.86700599,  3.64670659])/2
+ANTENNA_POS = np.asarray([[-0.35,2.7],[1.8,0.5],[5.1,-2.3],[0.0,0.0]])
 
 def load_file(file) :
     file = np.load(file)
@@ -558,7 +558,7 @@ def extract_targets_from_cfar(rdm, mask,
         targets : liste de tuples ((d, r), amplitude)
                   où (d, r) est la cellule CFAR de plus forte amplitude du cluster.
     """
-    print(min_distance_doppler,min_distance_range,min_points_per_target)
+    # print(min_distance_doppler,min_distance_range,min_points_per_target)
     detected_points = np.argwhere(mask)
     targets = []
 
@@ -834,7 +834,7 @@ def visualize_cfar_results(rdm, mask, thresholds, targets=None, figsize=(12, 10)
     return fig
 
 def compute_track_position_and_speed(track):
-    d_q = [track[i][1] for i in range(len(track))]
+    d_q = [2*track[i][1] for i in range(len(track))] #*2 car r -> d
     v_q = [track[i][0] for i in range(len(track))]
     def diff(p):
         x,y = p
@@ -845,20 +845,22 @@ def compute_track_position_and_speed(track):
         return res
     
     x0 = [0.0,0.0]
-    point_est = least_squares(diff,x0,loss='cauchy').x
+    point_est = least_squares(diff,x0,loss='linear').x
 
-    N = np.fromfunction(
-        lambda q, i: 0.5 * (
-            (point_est[i.astype(int)] - ANTENNA_POS[q.astype(int), i.astype(int)]) *
-            (1 / np.sqrt((point_est[0] - ANTENNA_POS[q.astype(int), 0])**2 + (point_est[1] - ANTENNA_POS[q.astype(int), 1])**2)) +
-            point_est[i.astype(int)] *
-            (1 / np.sqrt(point_est[0]**2 + point_est[1]**2))
-        ),
-        (len(track), 2),
-        dtype=int
-    )
+    speed_est = [None, None]
+    if (point_est[0] != 0.0 and point_est[1] != 0.0):
+        N = np.fromfunction(
+            lambda q, i: 0.5 * (
+                (point_est[i.astype(int)] - ANTENNA_POS[q.astype(int), i.astype(int)]) *
+                (1 / np.sqrt((point_est[0] - ANTENNA_POS[q.astype(int), 0])**2 + (point_est[1] - ANTENNA_POS[q.astype(int), 1])**2)) +
+                point_est[i.astype(int)] *
+                (1 / np.sqrt(point_est[0]**2 + point_est[1]**2))
+            ),
+            (len(track), 2),
+            dtype=int
+        )
 
-    speed_est = np.linalg.inv(N.T @ N) @ N.T @ v_q
+        speed_est = np.linalg.inv(N.T @ N) @ N.T @ v_q
 
     return [(point_est[0],point_est[1]),(speed_est[0],speed_est[1])]
 
@@ -882,31 +884,33 @@ def kalman_multicible(trackPrevious, kalman_P, trackMeasure):
     kalman_x = kalman_xp + kalman_K @ (kalman_z - kalman_H @ kalman_xp)
     kalman_P = kalman_Pp - kalman_K @ kalman_H @ kalman_Pp
 
-    result = []
+    result = np.array([])
     for q in range(4):
         dp = (kalman_xp[0]**2+kalman_xp[1]**2)**(1/2) + ((kalman_xp[0]-ANTENNA_POS[q][0])**2 + (kalman_xp[1]-ANTENNA_POS[q][1])**2)**(1/2)
         vp = 0.5 * ((np.array([kalman_xp[0]-ANTENNA_POS[q][0], kalman_xp[1]-ANTENNA_POS[q][1]]) @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0]-ANTENNA_POS[q][0])**2+(kalman_xp[1]-ANTENNA_POS[q][1])**2)) +
                     (kalman_xp[:2] @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0])**2+(kalman_xp[1])**2)))
-        result.append((vp,dp/2))
-    return result
+        result = np.append(result, (vp,dp/2))
+    return result, kalman_P
 
 from itertools import product, combinations
 
 def extract_all_targets(RDM_frame):
     """Retourne une liste à 4 entrées (une par canal) contenant
-    soit la liste [(v_idx, r_idx), …] soit [None] si pas de cible."""
+    soit la liste [(v, r), …] soit [None] si pas de cible."""
     all_t = [[] for _ in range(4)]
     for ch in range(4):
         mask, _ = ca_cfar_convolve(RDM_frame[ch])
         targets = extract_targets_from_cfar(RDM_frame[ch], mask)
         for (v_idx, r_idx) in (t[0] for t in targets):
-            all_t[ch].append((v_idx, r_idx))
+            r = float(r_idx) * delta_r - OFFSETS[ch]
+            v = float(v_idx-(Mc*16)//2)*delta_v
+            all_t[ch].append((v, r))
     # remplace les listes vides par [None] pour que product() les traite
     return [chan if chan else [None] for chan in all_t]
 
 def make_intraframe_tracks(all_targets):
     """Associe entre eux les canaux d’une même frame.
-       Une track = liste de (v_idx, r_idx) ayant >=2 canaux renseignés."""
+       Une track = liste de (v, r) ayant >=2 canaux renseignés."""
     tracks = []
     for combo in product(*all_targets):          # 4‑uplet (ou None)
         track = [combo[ch] for ch in range(4) if combo[ch] is not None]
