@@ -4,7 +4,7 @@ import csv
 import Processor
 
 # === PARAMÈTRES ===
-data_file = "data/Mesures_18-04/doublemarche4-17memevit.npz"
+data_file = "data/18-04/doublemarche4-17memevit.npz"
 output_csv = "annotations.csv"
 channel = 1
 

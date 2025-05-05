@@ -895,6 +895,9 @@ class tracker:
         self.kalman_P = self.kalman_Pp - kalman_K @ kalman_params['H'] @ self.kalman_Pp
         return self.kalman_x, self.kalman_P
     
+    def __str__(self):
+        return f"Tracker ID: {self.id}, Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P}, History: {self.history}"
+    
 def tracking_init(file) :
     RDM = compute_RDM(file, 0)
     all_tragets = extract_all_targets(RDM)
