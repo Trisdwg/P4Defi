@@ -206,7 +206,7 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
 # ===========================================================================
 
 def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
-                     window_size_doppler=45, window_size_range=15, alpha=10.0):
+                     window_size_doppler=45, window_size_range=15, alpha=8.0):
     n_doppler, n_range = rdm.shape
 
     # Total window size
@@ -249,7 +249,7 @@ def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
 def extract_targets_from_cfar(rdm, mask,
                               min_distance_doppler=20,
                               min_distance_range=10,
-                              min_points_per_target=50):
+                              min_points_per_target=150):
     """
     Extrait les cibles à partir du masque CFAR en fusionnant les détections proches.
     Écarte les clusters contenant moins de `min_points_per_target` points.
@@ -482,17 +482,7 @@ class tracker:
     
     def __str__(self):
         return f"Tracker ID: {self.id}, Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P}, History: {self.history}"
-    
-def tracking_init(file) :
-    RDM = compute_RDM(file, 0)
-    all_tragets = extract_all_targets(RDM)
-    tracks = make_intraframe_tracks(all_tragets)
-    non_official = []
-    for i, track in enumerate(tracks):
-        non_official[i] = tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), [track])
-    return non_official
 
-print(tracking_init("data/30-04/marche 2-15m.npz"))
 def compute_track_position_and_speed(track):
     d_q = [2*track[i][1] for i in range(len(track))] #*2 car r -> d
     v_q = [track[i][0] for i in range(len(track))]
@@ -551,3 +541,17 @@ def make_intraframe_tracks(all_targets):
         if 2 <= len(track) <= 4 and acceptableTrack:
             tracks.append(track)
     return tracks
+
+    
+def tracking_init(file) :
+    RDM = compute_RDM(file, 0)
+    all_tragets = extract_all_targets(RDM)
+    tracks = make_intraframe_tracks(all_tragets)
+    print("Nombre de tracks : ", len(tracks))
+    print(tracks)
+    non_official = []
+    for i, track in enumerate(tracks):
+        non_official.append(tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), [track]))
+    return non_official[0]
+
+print(tracking_init("data/30-04/marche 2-15m.npz"))
