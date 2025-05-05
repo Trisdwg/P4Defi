@@ -907,7 +907,7 @@ def tracking_init(file) :
         non_official[i] = tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), [track])
     return non_official
 
-    
+print(tracking_init())
 def compute_track_position_and_speed(track):
     d_q = [2*track[i][1] for i in range(len(track))] #*2 car r -> d
     v_q = [track[i][0] for i in range(len(track))]
