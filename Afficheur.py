@@ -580,7 +580,7 @@ def plot_target_trajectory_with_kalman(
 
 def main():
     # File path - update with your data file
-    data_file = "data/30-04/démo 3 cibles.npz"
+    data_file = "data/30-04/calibration 1.npz"
     
     # Visualization mode selection
     # Choose one of: "basic_rdm", "multi_target", "clean_iterations", "trajectory_kalman"

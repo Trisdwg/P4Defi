@@ -834,14 +834,6 @@ def visualize_cfar_results(rdm, mask, thresholds, targets=None, figsize=(12, 10)
     plt.tight_layout()
     return fig
 
-# Paramètres WORK IN PROGRESS
-guard_size = (30, 30)  # (doppler, range)
-window_size = (10, 20)  # (doppler, range)
-alpha = 5 # Facteur multiplicatif du seuil
-use_os_cfar = True # True pour OS-CFAR, False pour CA-CFAR
-os_percentile = 99  # Percentile pour OS-CFAR
-
-
 from itertools import product
 
 def initialize_tracker(RDM):
@@ -875,4 +867,17 @@ def initialize_tracker(RDM):
     tracker[0] = tracks
     # Clé = indice de la frame d'init ; valeur = liste des tracks
     return tracker
+
+def maintain_tracker(tracker, RDM, frame_idx) :
+    all_targets = [[], [], [], []]   # liste des cibles par canal
+    
+    for ch in range(4):
+        mask, _ = ca_cfar_convolve(RDM[ch])
+        targets = extract_targets_from_cfar(RDM[ch], mask)
+        # on ne garde que le tuple (v,r) retourné par les fonctions maison
+        all_targets[ch].extend(t[0] for t in targets)
+    
+
+
+
 
