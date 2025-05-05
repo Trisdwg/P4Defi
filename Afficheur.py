@@ -600,20 +600,12 @@ def main():
     }
 
     track = Processor.initialize_tracker(data_file)
-    positions_speeds = np.array([])
-    print("track for first frame:")
-    for i in range(len(track[0])):
-        print(f"Combination {i}:")
-        result = Processor.compute_track_position_and_speed(track[0][i])
-        resultpred = Processor.kalman_multicible_pred(track[0][i], kalman_params['kalman_p'])
-        print(resultpred)
-        positions_speeds = np.append(positions_speeds, result)
-        for j in range(len(track[0][i])):
-            print(f"Channel {j}: v {track[0][i][j][0]}, d {2*track[0][i][j][1]}")
-            print(f"Predicted for Channel{j}: v {resultpred[0][j][0]}, d {resultpred[0][j][1]}")
-        print(f"Result: x={result[0][0]}, y={result[0][1]}, vx={result[1][0]}, vy={result[1][1]}")
-    # print("positions_speeds:")
-    # print(positions_speeds)
+    print(len(track[0]))
+    print(len(track[1]))
+    print(len(track['1pk']))
+    print(track[0][0])
+    print(track[1][0])
+    print(track['1pk'][0])
     
     # Choose visualization based on mode
     if visualization_mode == "basic_rdm":
