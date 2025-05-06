@@ -600,7 +600,7 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
         print("Valid options: basic_rdm, multi_target, clean_iterations, trajectory_kalman")"""
 
 if __name__ == "__main__":
-    data_file = "data/30-04/marche 2-15m.npz"
+    data_file = "data/30-04/marche cercle 2 cibles.npz"
     run_full_tracking_and_plot(data_file,
                                save_plot_path=None)   # ou "trajectoires.png"
 

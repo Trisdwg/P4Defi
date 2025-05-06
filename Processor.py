@@ -467,7 +467,7 @@ def tracking_init(file) :
 
 
 from scipy.spatial.distance import cdist
-MAX_GATING_DIST_4D = 5.0                          # seuil en 4‑D
+MAX_GATING_DIST_4D = 4                         # seuil en 4‑D
 
 def tracking_update(non_official, frame_idx, file, official=None):
     global NEXT_ID
@@ -523,7 +523,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
             if tracked.misses > 0.2 * tracked.non_official_count:
                 # Trop de détections manquées pour un tracker non_official -> on le supprime
                 non_official.remove(tracked)
-            elif tracked.non_official_count > 35 and tracked.misses < 0.1 * tracked.non_official_count:
+            elif tracked.non_official_count > 20 and tracked.misses < 0.15 * tracked.non_official_count:
                 # Assez de détections pour la promotion -> on le transfère vers official
                 non_official.remove(tracked)
                 official.append(tracked)
@@ -531,7 +531,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
             tracked.official_count += 1
             
             # Décision pour les trackers official uniquement
-            if tracked.misses > 1 * (tracked.non_official_count + tracked.official_count):
+            if tracked.misses > 0.4 * (tracked.non_official_count + tracked.official_count):
                 # Trop de détections manquées pour un tracker official -> on le retire
                 retired.append(tracked)
                 official.remove(tracked)
@@ -544,7 +544,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
 
             # Vérifie la proximité
             dists_to_existing = np.linalg.norm(pred_state - z, axis=1)
-            if np.any(dists_to_existing < 3.0):   # seuil à ajuster
+            if np.any(dists_to_existing < 1.5):   # seuil à ajuster
                 print(f"--> Skip creating tracker for measurement {j}, too close to existing tracker")
                 continue
 
