@@ -474,6 +474,8 @@ def tracking_update(non_official, frame_idx, file, official=None):
         for trk in all_trk:
             trk.kalman_update(trk.kalman_xp)
 
+    if not all_trk:
+        return
     # 3. ---------- matrices 4‑D ----------
 
     pred_state = np.vstack([trk.kalman_xp for trk in all_trk])     # (N,4)
@@ -502,21 +504,18 @@ def tracking_update(non_official, frame_idx, file, official=None):
             all_trk[i].official_count += 1
     
     for tracker in all_trk:
-        if tracker.misses > 0.1 * (tracker.non_official_count + tracker.official_count):
+        if tracker.misses > 1 * (tracker.non_official_count + tracker.official_count):
             if (tracker in non_official):
                 non_official.remove(tracker)
             else :
                 retired.append(tracker)
                 official.remove(tracker)
-        elif tracker.non_official_count > 10 and tracker.misses < 0.1 * tracker.non_official_count:
+        elif tracker.non_official_count > 10 and tracker.misses < 0.4 * tracker.non_official_count:
             tracker.non_official_count = 0
             non_official.remove(tracker)
             official.append(tracker)
 
-    
-non_official = tracking_init("data/30-04/marche 2-15m.npz")
-print("Initialisation des tracks : ", non_official[0])
-print("Initialisation des tracks 2: ", non_official[1])
-tracking_update(non_official, 1, "data/30-04/marche 2-15m.npz")
-print("nearest neighbor : ", non_official[0])
-print("nearest neighbor 2 : ", non_official[1])
+def tracking_finalize(official):
+    # transfère VRAIMENT tous les trackers d’« official » vers « retired »
+    retired.extend(official)      # ou retired += official
+    official.clear()

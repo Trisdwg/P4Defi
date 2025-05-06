@@ -470,7 +470,82 @@ def plot_target_trajectory_with_kalman(
     else:
         plt.show()
 
-def main():
+# ─────────────────────────── pipeline complet + plot ──────────────────────────
+import matplotlib.pyplot as plt
+from itertools import cycle
+
+def run_full_tracking_and_plot(data_file, save_plot_path=None):
+    """
+    • Lance le suivi multicible sur TOUTES les frames du fichier.
+    • À la fin, affiche (ou enregistre) les trajectoires (x,y) des trackers
+      passés en liste `retired`, chaque cible de couleur différente.
+    """
+
+    # 0) ————————————————————————————————————————————————————————————————
+    #    petit nettoyage si on enchaîne plusieurs runs dans la même session
+    Processor.non_official.clear()
+    Processor.official.clear()
+    Processor.retired.clear()
+
+    # 1) ————————————————————————— initialisation ——————————————————————————
+    data, *_ = Processor.load_file(data_file)
+    N_frame   = data.shape[0]
+
+    Processor.tracking_init(data_file)          # remplit Processor.non_official
+
+    # 2) ———————————————————————— boucle sur les frames ————————————————————
+    for k in range(1, N_frame):
+        print(f"Frame {k}/{N_frame}")
+        Processor.tracking_update(
+            Processor.non_official,
+            k,
+            data_file,
+            Processor.official
+        )
+        print(len(Processor.non_official))
+        print(len(Processor.official))
+        print(len(Processor.retired))
+        
+
+    # 3) ———————————————————————— finalisation ————————————————————————
+    Processor.tracking_finalize(Processor.official)   # pousse tout dans retired
+
+    # 4) ———————————————————————— tracé des trajectoires ————————————————————
+    retired_trackers = Processor.retired
+    if not retired_trackers:
+        print("Aucun tracker retiré : rien à tracer.")
+        return
+
+    fig, ax = plt.subplots(figsize=(6, 8))
+    color_cycle = cycle(plt.cm.tab10.colors)
+
+    for trk, col in zip(retired_trackers, color_cycle):
+        hist = trk.history
+        traj = [state[0] for state in hist]     # positions (x,y)
+        xs, ys = zip(*traj)
+        ax.plot(xs, ys, marker='o', ms=3, lw=1.3,
+                color=col, label=f"Track {trk.id}")
+
+    # (optionnel) affichage des antennes
+    ant = Processor.ANTENNA_POS
+    ax.scatter(ant[:,0], ant[:,1], marker='^', c='k', s=60, label="Antennes")
+
+    ax.set_xlabel("X [m]")
+    ax.set_ylabel("Y [m]")
+    ax.set_aspect('equal')
+    ax.set_title("Trajectoires des cibles (trackers retirés)")
+    ax.legend()
+    ax.grid(True)
+    plt.tight_layout()
+
+    if save_plot_path:
+        fig.savefig(save_plot_path, dpi=150)
+        print(f"Figure sauvegardée → {save_plot_path}")
+    else:
+        plt.show()
+
+
+"""def main():
     # File path - update with your data file
     data_file = "data/30-04/marche 2-15m.npz"
     
@@ -508,7 +583,13 @@ def main():
     
     else:
         print(f"Unknown visualization mode: {visualization_mode}")
-        print("Valid options: basic_rdm, multi_target, clean_iterations, trajectory_kalman")
+        print("Valid options: basic_rdm, multi_target, clean_iterations, trajectory_kalman")"""
 
 if __name__ == "__main__":
-    main()
+    data_file = "data/30-04/marche 2-15m.npz"
+    run_full_tracking_and_plot(data_file,
+                               save_plot_path=None)   # ou "trajectoires.png"
+
+
+"""if __name__ == "__main__":
+    main()"""
