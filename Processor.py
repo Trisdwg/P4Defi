@@ -206,7 +206,7 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
 # ===========================================================================
 
 def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
-                     window_size_doppler=45, window_size_range=15, alpha=8.0):
+                     window_size_doppler=45, window_size_range=15, alpha=10.0):
     n_doppler, n_range = rdm.shape
 
     # Total window size
@@ -248,7 +248,7 @@ def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
 def extract_targets_from_cfar(rdm, mask,
                               min_distance_doppler=20,
                               min_distance_range=10,
-                              min_points_per_target=100):
+                              min_points_per_target=120):
     """
     Extrait les cibles à partir du masque CFAR en fusionnant les détections proches.
     Écarte les clusters contenant moins de `min_points_per_target` points.
@@ -504,24 +504,23 @@ def tracking_update(non_official, frame_idx, file, official=None):
         else:                       # appartient à la liste official
             all_trk[i].official_count += 1
     
-    for tracker in all_trk:
-        if tracker.misses > 0.1 * (tracker.non_official_count + tracker.official_count):
-            if (tracker in non_official):
-                non_official.remove(tracker)
+    for tracked in all_trk:
+        if tracked.misses > 0.4 * (tracked.non_official_count + tracked.official_count):
+            if (tracked in non_official):
+                non_official.remove(tracked)
             else :
-                retired.append(tracker)
-                official.remove(tracker)
-        elif tracker.non_official_count > 10 and tracker.misses < 0.4 * tracker.non_official_count:
-            tracker.non_official_count = 0
-            non_official.remove(tracker)
-            official.append(tracker)
+                retired.append(tracked)
+                official.remove(tracked)
+        elif tracked.non_official_count > 50 and tracked.misses < 0.1 * tracked.non_official_count:
+            tracked.non_official_count = 0
+            non_official.remove(tracked)
+            official.append(tracked)
     
     remaining_cols = set(range(len(tracks))) - assigned_cols
     for j in remaining_cols:
         z = meas_state[j]
         # on crée un nouveau tracker
-        new_trk = tracker(len(non_official) + j, np.array([z[0], z[1], z[2], z[3]]), np.eye(4), [tracks[j]])
-        non_official.append(new_trk)
+        non_official.append(tracker(len(non_official) + j, np.array([z[0], z[1], z[2], z[3]]), np.eye(4), [tracks[j]]))
 
 def tracking_finalize(official):
     # transfère VRAIMENT tous les trackers d’« official » vers « retired »
