@@ -395,7 +395,7 @@ official = []
 retired = []
 
 class tracker:
-    def __init__(self, id, kalman_x, kalman_P, history) :
+    def __init__(self, id, kalman_x, kalman_P) :
         self.id = id
         self.kalman_xp = None
         self.kalman_Pp = None
@@ -404,7 +404,7 @@ class tracker:
         self.non_official_count = 0
         self.misses = 0
         self.official_count = 0
-        self.history = history 
+        self.history = [[(kalman_x[0], kalman_x[1]),(kalman_x[2], kalman_x[3])]] # [(pos),(vel)]
     
     def kalman_predict(self):
         self.kalman_xp = kalman_params['F'] @ self.kalman_x
@@ -415,6 +415,7 @@ class tracker:
         kalman_K = self.kalman_Pp @ kalman_params['H'].T @ np.linalg.inv(kalman_params['H'] @ self.kalman_P @ kalman_params['H'].T + kalman_params['R'])
         self.kalman_x = self.kalman_xp + kalman_K @ (z - kalman_params['H'] @ self.kalman_xp)
         self.kalman_P = self.kalman_Pp - kalman_K @ kalman_params['H'] @ self.kalman_Pp
+        self.history.append([(self.kalman_x[0], self.kalman_x[1]),(self.kalman_x[2], self.kalman_x[3])])
         return self.kalman_x, self.kalman_P
     
     def __str__(self):
@@ -455,7 +456,7 @@ def tracking_init(file) :
     all_tragets = extract_all_targets(RDM)
     tracks = make_intraframe_tracks(all_tragets)
     for i, track in enumerate(tracks):
-        non_official.append(tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), [track]))
+        non_official.append(tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4)))
     return non_official
 
 
@@ -465,46 +466,51 @@ MAX_GATING_DIST_4D = 3.0                          # seuil en 4‑D
 def tracking_update(non_official, frame_idx, file, official=None):
     # 1. ---------- prédiction ----------
     all_trk = non_official + (official or [])
+    if not all_trk:
+        return
     for trk in all_trk:
         trk.kalman_predict()
 
     # 2. ---------- extraction des mesures ----------
     RDM     = compute_RDM(file, frame_idx)
     tracks  = make_intraframe_tracks(extract_all_targets(RDM))   # [(pos),(vel)]
+    print(len(tracks), " tracks for frame", frame_idx, ":", tracks)
+
+    assigned_cols = None
     if not tracks:
         for trk in all_trk:
             trk.kalman_update(trk.kalman_xp)
+    else:
+        # 3. ---------- matrices 4‑D ----------
 
-    if not all_trk:
-        return
-    # 3. ---------- matrices 4‑D ----------
+        pred_state = np.vstack([trk.kalman_xp for trk in all_trk])     # (N,4)
+        meas_state = np.vstack([[p[0], p[1], v[0], v[1]] for p, v in tracks])  # (M,4)
 
-    pred_state = np.vstack([trk.kalman_xp for trk in all_trk])     # (N,4)
-    meas_state = np.vstack([[p[0], p[1], v[0], v[1]] for p, v in tracks])  # (M,4)
+        D = cdist(pred_state, meas_state)                              # (N,M)
 
-    D = cdist(pred_state, meas_state)                              # (N,M)
+        # 4. ---------- association NN ----------
+        assigned_cols = set()
+        print(assigned_cols)
+        for i, row in enumerate(D):
+            j = np.argmin(row)
+            if row[j] < MAX_GATING_DIST_4D:
+                z = meas_state[j]
+                print(f"Tracker {i} assigned to measurement {j} with distance {row[j]}")
+                assigned_cols.add(j)
+            else:
+                z = pred_state[i]
+                all_trk[i].misses += 1
 
-    # 4. ---------- association NN ----------
-    assigned_cols = set()
-    for i, row in enumerate(D):
-        j = np.argmin(row)
-        if row[j] < MAX_GATING_DIST_4D:
-            z = meas_state[j]
-            assigned_cols.add(j)
-        else:
-            z = pred_state[i]
-            all_trk[i].misses += 1
-        
-        all_trk[i].kalman_update(z)
-        all_trk[i].history.append(tracks[j])
-
+            all_trk[i].kalman_update(z)
+        print(assigned_cols)
+    
+    for tracked in all_trk:
         # ---------- compteurs ----------
         if all_trk[i] in non_official:
             all_trk[i].non_official_count += 1
         else:                       # appartient à la liste official
             all_trk[i].official_count += 1
-    
-    for tracked in all_trk:
+        #----------- retrait/ajout ---------------
         if tracked.misses > 0.4 * (tracked.non_official_count + tracked.official_count):
             if (tracked in non_official):
                 non_official.remove(tracked)
@@ -520,7 +526,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
     for j in remaining_cols:
         z = meas_state[j]
         # on crée un nouveau tracker
-        non_official.append(tracker(len(non_official) + j, np.array([z[0], z[1], z[2], z[3]]), np.eye(4), [tracks[j]]))
+        non_official.append(tracker(len(non_official) + j, np.array([z[0], z[1], z[2], z[3]]), np.eye(4)))
 
 def tracking_finalize(official):
     # transfère VRAIMENT tous les trackers d’« official » vers « retired »

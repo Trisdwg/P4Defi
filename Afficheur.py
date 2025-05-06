@@ -308,7 +308,7 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
             fig.savefig(save_path, dpi=150)
             print(f"Figure sauvegardée → {save_path}")
         else:
-            timer = fig.canvas.new_timer(interval=200)
+            timer = fig.canvas.new_timer(interval=3000)
             timer.add_callback(plt.close)
             timer.start()
             plt.show()
@@ -496,6 +496,12 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
     N_frame   = data.shape[0]
 
     Processor.tracking_init(data_file)          # remplit Processor.non_official
+    print(f"Initialisation des trackers : {len(Processor.non_official)} trackers non officiels créés.")
+    for trk in Processor.non_official:
+        print(trk)
+    print(f"Initialisation des trackers : {len(Processor.official)} trackers officiels créés.")
+    for trk in Processor.official:
+        print(trk)
 
     # 2) ———————————————————————— boucle sur les frames ————————————————————
     for k in range(1, N_frame):
@@ -506,9 +512,11 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
             data_file,
             Processor.official
         )
-        print(len(Processor.non_official))
-        print(len(Processor.official))
-        print(len(Processor.retired))
+        print(f"number of nonoff trackers after frame {k} = {len(Processor.non_official)}")
+        for trk in Processor.non_official:
+            print(trk)
+        print(f"number of off trackers after frame {k} = {len(Processor.official)}")
+        print(f"number of retired trackers after frame {k} = {len(Processor.retired)}")
         plot_multi_target_rdmsv2(data_file, anim=False,save_path=None, frame_idx=k)
         
 
