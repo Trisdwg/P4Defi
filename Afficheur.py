@@ -309,9 +309,6 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
             fig.savefig(save_path, dpi=150)
             print(f"Figure sauvegardée → {save_path}")
         else:
-            timer = fig.canvas.new_timer(interval=500)
-            timer.add_callback(plt.close)
-            timer.start()
             plt.show()
 
 

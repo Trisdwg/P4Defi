@@ -326,12 +326,12 @@ def cfar_2d(rdm):
     - thresholds: Matrice des seuils calculés
     """
 
-    start_time = time.time()
+    # start_time = time.time()
     mask, thresholds = ca_cfar_convolve(
         rdm, 
     )
-    end_time = time.time()
-    print("Execution time convolve ca_cfar:", end_time - start_time, "seconds")
+    # end_time = time.time()
+    # print("Execution time convolve ca_cfar:", end_time - start_time, "seconds")
 
     # Define a star-shaped footprint (this one is a 3x3 example)
     # footprint = create_star_shaped_footprint([3*x for x in window_size])
@@ -481,7 +481,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
     # 2. ---------- extraction des mesures ----------
     RDM     = compute_RDM(file, frame_idx)
     tracks  = make_intraframe_tracks(extract_all_targets(RDM))   # [(pos),(vel)]
-    print(len(tracks), " tracks for frame", frame_idx, ":", tracks)
+    # print(len(tracks), " tracks for frame", frame_idx, ":", tracks)
 
     # Initialiser assigned_cols comme un ensemble vide dans tous les cas
     assigned_cols = set()
@@ -498,12 +498,12 @@ def tracking_update(non_official, frame_idx, file, official=None):
         D = cdist(pred_state, meas_state)                              # (N,M)
 
         # 4. ---------- association NN ----------
-        print(assigned_cols)
+        # print(assigned_cols)
         for i, row in enumerate(D):
             j = np.argmin(row)
             if row[j] < MAX_GATING_DIST_4D:
                 z = meas_state[j]
-                print(f"Tracker {i} assigned to measurement {j} with distance {row[j]}")
+                # print(f"Tracker {i} assigned to measurement {j} with distance {row[j]}")
                 assigned_cols.add(j)
                 all_trk[i].kalman_update(z,row[j])
             else:
@@ -511,7 +511,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
                 all_trk[i].misses += 1
                 all_trk[i].kalman_update(z)
 
-        print(assigned_cols)
+        # print(assigned_cols)
     
     # Mise à jour des compteurs et gestion des trackers
     for tracked in all_trk:
@@ -545,14 +545,14 @@ def tracking_update(non_official, frame_idx, file, official=None):
             # Vérifie la proximité
             dists_to_existing = np.linalg.norm(pred_state - z, axis=1)
             if np.any(dists_to_existing < 1.5):   # seuil à ajuster
-                print(f"--> Skip creating tracker for measurement {j}, too close to existing tracker")
+                # print(f"--> Skip creating tracker for measurement {j}, too close to existing tracker")
                 continue
 
             # Crée le tracker si aucun doublon
             new_trk = tracker(NEXT_ID, np.array([z[0], z[1], z[2], z[3]]), np.eye(4))
             NEXT_ID += 1
             non_official.append(new_trk)
-            print(f"--> Created new tracker {new_trk.id} for measurement {j}")
+            # print(f"--> Created new tracker {new_trk.id} for measurement {j}")
 
 
 def tracking_finalize(official):
