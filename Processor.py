@@ -393,6 +393,7 @@ kalman_params = {
 non_official = []
 official = []
 retired = []
+
 class tracker:
     def __init__(self, id, kalman_x, kalman_P, history) :
         self.id = id
@@ -487,9 +488,9 @@ def tracking_update(non_official, frame_idx, file, official=None):
     assigned_cols = set()
     for i, row in enumerate(D):
         j = np.argmin(row)
-
         if row[j] < MAX_GATING_DIST_4D:
             z = meas_state[j]
+            assigned_cols.add(j)
         else:
             z = pred_state[j]
             all_trk[i].misses += 1
@@ -514,6 +515,13 @@ def tracking_update(non_official, frame_idx, file, official=None):
             tracker.non_official_count = 0
             non_official.remove(tracker)
             official.append(tracker)
+    
+    remaining_cols = set(range(len(tracks))) - assigned_cols
+    for j in remaining_cols:
+        z = meas_state[j]
+        # on crée un nouveau tracker
+        new_trk = tracker(len(non_official) + j, np.array([z[0], z[1], z[2], z[3]]), np.eye(4), [tracks[j]])
+        non_official.append(new_trk)
 
 def tracking_finalize(official):
     # transfère VRAIMENT tous les trackers d’« official » vers « retired »
