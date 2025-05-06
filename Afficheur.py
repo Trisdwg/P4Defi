@@ -308,7 +308,7 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
             fig.savefig(save_path, dpi=150)
             print(f"Figure sauvegardée → {save_path}")
         else:
-            timer = fig.canvas.new_timer(interval=3000)
+            timer = fig.canvas.new_timer(interval=500)
             timer.add_callback(plt.close)
             timer.start()
             plt.show()
@@ -484,6 +484,7 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
     • À la fin, affiche (ou enregistre) les trajectoires (x,y) des trackers
       passés en liste `retired`, chaque cible de couleur différente.
     """
+    Processor.NEXT_ID = 0  # reset ID counter for new run
 
     # 0) ————————————————————————————————————————————————————————————————
     #    petit nettoyage si on enchaîne plusieurs runs dans la même session
@@ -517,7 +518,7 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
             print(trk)
         print(f"number of off trackers after frame {k} = {len(Processor.official)}")
         print(f"number of retired trackers after frame {k} = {len(Processor.retired)}")
-        plot_multi_target_rdmsv2(data_file, anim=False,save_path=None, frame_idx=k)
+        #plot_multi_target_rdmsv2(data_file, anim=False,save_path=None, frame_idx=k)
         
 
     # 3) ———————————————————————— finalisation ————————————————————————

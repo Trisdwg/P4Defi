@@ -393,7 +393,6 @@ kalman_params = {
 non_official = []
 official = []
 retired = []
-
 class tracker:
     def __init__(self, id, kalman_x, kalman_P) :
         self.id = id
@@ -452,18 +451,21 @@ def make_intraframe_tracks(all_targets):
 
     
 def tracking_init(file) :
+    global NEXT_ID
     RDM = compute_RDM(file, 0)
     all_tragets = extract_all_targets(RDM)
     tracks = make_intraframe_tracks(all_tragets)
     for i, track in enumerate(tracks):
-        non_official.append(tracker(i, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4)))
+        non_official.append(tracker(NEXT_ID, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4)))
+        NEXT_ID += 1
     return non_official
 
 
 from scipy.spatial.distance import cdist
-MAX_GATING_DIST_4D = 3.0                          # seuil en 4‑D
+MAX_GATING_DIST_4D = 5.0                          # seuil en 4‑D
 
 def tracking_update(non_official, frame_idx, file, official=None):
+    global NEXT_ID
     # 1. ---------- prédiction ----------
     all_trk = non_official + (official or [])
     if not all_trk:
@@ -476,20 +478,21 @@ def tracking_update(non_official, frame_idx, file, official=None):
     tracks  = make_intraframe_tracks(extract_all_targets(RDM))   # [(pos),(vel)]
     print(len(tracks), " tracks for frame", frame_idx, ":", tracks)
 
-    assigned_cols = None
+    # Initialiser assigned_cols comme un ensemble vide dans tous les cas
+    assigned_cols = set()
+    
     if not tracks:
+        # Si pas de tracks, on met à jour avec la prédiction
         for trk in all_trk:
             trk.kalman_update(trk.kalman_xp)
     else:
         # 3. ---------- matrices 4‑D ----------
-
         pred_state = np.vstack([trk.kalman_xp for trk in all_trk])     # (N,4)
         meas_state = np.vstack([[p[0], p[1], v[0], v[1]] for p, v in tracks])  # (M,4)
 
         D = cdist(pred_state, meas_state)                              # (N,M)
 
         # 4. ---------- association NN ----------
-        assigned_cols = set()
         print(assigned_cols)
         for i, row in enumerate(D):
             j = np.argmin(row)
@@ -504,29 +507,47 @@ def tracking_update(non_official, frame_idx, file, official=None):
             all_trk[i].kalman_update(z)
         print(assigned_cols)
     
+    # Mise à jour des compteurs et gestion des trackers
     for tracked in all_trk:
-        # ---------- compteurs ----------
-        if all_trk[i] in non_official:
-            all_trk[i].non_official_count += 1
-        else:                       # appartient à la liste official
-            all_trk[i].official_count += 1
-        #----------- retrait/ajout ---------------
-        if tracked.misses > 0.4 * (tracked.non_official_count + tracked.official_count):
-            if (tracked in non_official):
+    # ---------- compteurs ----------
+        if tracked in non_official:
+            tracked.non_official_count += 1
+            
+            # Décision pour les trackers non_official uniquement
+            if tracked.misses > 0.2 * tracked.non_official_count:
+                # Trop de détections manquées pour un tracker non_official -> on le supprime
                 non_official.remove(tracked)
-            else :
+            elif tracked.non_official_count > 35 and tracked.misses < 0.1 * tracked.non_official_count:
+                # Assez de détections pour la promotion -> on le transfère vers official
+                non_official.remove(tracked)
+                official.append(tracked)
+        else:  # Le tracker est dans official
+            tracked.official_count += 1
+            
+            # Décision pour les trackers official uniquement
+            if tracked.misses > 1 * (tracked.non_official_count + tracked.official_count):
+                # Trop de détections manquées pour un tracker official -> on le retire
                 retired.append(tracked)
                 official.remove(tracked)
-        elif tracked.non_official_count > 50 and tracked.misses < 0.1 * tracked.non_official_count:
-            tracked.non_official_count = 0
-            non_official.remove(tracked)
-            official.append(tracked)
     
-    remaining_cols = set(range(len(tracks))) - assigned_cols
-    for j in remaining_cols:
-        z = meas_state[j]
-        # on crée un nouveau tracker
-        non_official.append(tracker(len(non_official) + j, np.array([z[0], z[1], z[2], z[3]]), np.eye(4)))
+    # Gestion des nouvelles pistes uniquement si on a des tracks
+    if tracks:
+        remaining_cols = set(range(len(tracks))) - assigned_cols
+        for j in remaining_cols:
+            z = meas_state[j]
+
+            # Vérifie la proximité
+            dists_to_existing = np.linalg.norm(pred_state - z, axis=1)
+            if np.any(dists_to_existing < 3.0):   # seuil à ajuster
+                print(f"--> Skip creating tracker for measurement {j}, too close to existing tracker")
+                continue
+
+            # Crée le tracker si aucun doublon
+            new_trk = tracker(NEXT_ID, np.array([z[0], z[1], z[2], z[3]]), np.eye(4))
+            NEXT_ID += 1
+            non_official.append(new_trk)
+            print(f"--> Created new tracker {new_trk.id} for measurement {j}")
+
 
 def tracking_finalize(official):
     # transfère VRAIMENT tous les trackers d’« official » vers « retired »
