@@ -388,7 +388,7 @@ kalman_params = {
     'F' : np.array([[1,0,deltaTFrame,0],[0,1,0,deltaTFrame],[0,0,1,0],[0,0,0,1]]),
     'Q' : np.array([[0,0,0,0],[0,0,0,0],[0,0,0.1,0],[0,0,0,0.1]]),
     'H' : np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]),
-    'R' : np.array([[3,0,0,0],[0,3,0,0],[0,0,5,0],[0,0,0,5]])
+    'R' : np.array([[1,0,0,0],[0,1,0,0],[0,0,2.5,0],[0,0,0,2.5]])
 }
 non_official = []
 official = []
@@ -400,6 +400,7 @@ class tracker:
         self.kalman_Pp = None
         self.kalman_x = kalman_x
         self.kalman_P = kalman_P
+        self.kalman_R = kalman_params['R']
         self.non_official_count = 0
         self.misses = 0
         self.official_count = 0
@@ -410,15 +411,19 @@ class tracker:
         self.kalman_Pp = kalman_params['F'] @ self.kalman_P @ kalman_params['F'].T + kalman_params['Q']
         return self.kalman_xp, self.kalman_Pp
     
-    def kalman_update(self, z):
-        kalman_K = self.kalman_Pp @ kalman_params['H'].T @ np.linalg.inv(kalman_params['H'] @ self.kalman_P @ kalman_params['H'].T + kalman_params['R'])
+    def kalman_update(self, z, distance=-1):
+        if distance == -1:
+            self.kalman_R = 2*kalman_params['R']
+        else:
+            self.kalman_R = distance*kalman_params['R']
+        kalman_K = self.kalman_Pp @ kalman_params['H'].T @ np.linalg.inv(kalman_params['H'] @ self.kalman_P @ kalman_params['H'].T + self.kalman_R)
         self.kalman_x = self.kalman_xp + kalman_K @ (z - kalman_params['H'] @ self.kalman_xp)
         self.kalman_P = self.kalman_Pp - kalman_K @ kalman_params['H'] @ self.kalman_Pp
         self.history.append([(self.kalman_x[0], self.kalman_x[1]),(self.kalman_x[2], self.kalman_x[3])])
         return self.kalman_x, self.kalman_P
     
     def __str__(self):
-        return f"Tracker ID: {self.id},\n Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P},\n Kalman Predicted State: {self.kalman_xp}, Kalman Predicted Covariance: {self.kalman_Pp}, \n History: {self.history}, \n Misses: {self.misses}, Non-official Count: {self.non_official_count}, Official Count: {self.official_count},\n\n"
+        return f"Tracker ID: {self.id},\n Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P},\n Kalman Predicted State: {self.kalman_xp}, Kalman Predicted Covariance: {self.kalman_Pp}, \n Kalman R: {self.kalman_R} \n History: {self.history}, \n Misses: {self.misses}, Non-official Count: {self.non_official_count}, Official Count: {self.official_count},\n\n"
     
 
 def extract_all_targets(RDM_frame):
@@ -500,11 +505,12 @@ def tracking_update(non_official, frame_idx, file, official=None):
                 z = meas_state[j]
                 print(f"Tracker {i} assigned to measurement {j} with distance {row[j]}")
                 assigned_cols.add(j)
+                all_trk[i].kalman_update(z,row[j])
             else:
                 z = pred_state[i]
                 all_trk[i].misses += 1
+                all_trk[i].kalman_update(z)
 
-            all_trk[i].kalman_update(z)
         print(assigned_cols)
     
     # Mise à jour des compteurs et gestion des trackers
