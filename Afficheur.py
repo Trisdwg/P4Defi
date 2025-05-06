@@ -5,6 +5,7 @@ import matplotlib.animation as animation
 import Processor
 from tqdm import tqdm
 import imageio.v2 as imageio
+from itertools import cycle
 
 # Constants from the original code
 Offset = Processor.OFFSETS
@@ -474,10 +475,6 @@ def plot_target_trajectory_with_kalman(
     else:
         plt.show()
 
-# ─────────────────────────── pipeline complet + plot ──────────────────────────
-import matplotlib.pyplot as plt
-from itertools import cycle
-
 def run_full_tracking_and_plot(data_file, save_plot_path=None):
     """
     • Lance le suivi multicible sur TOUTES les frames du fichier.
@@ -559,13 +556,13 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
         plt.show()
 
 
-"""def main():
+def main():
     # File path - update with your data file
     data_file = "data/30-04/marche 2-15m.npz"
     
     # Visualization mode selection
     # Choose one of: "basic_rdm", "multi_target", "clean_iterations", "trajectory_kalman"
-    visualization_mode = "multi_targetv2"  # or "basic_rdm", "trajectory_kalman"
+    visualization_mode = "full_tracking"  # or "basic_rdm", "trajectory_kalman"
     
     # Animation flag - if True, creates animation, otherwise static plot
     anim = False
@@ -595,15 +592,13 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
         # Always animation for trajectory
         plot_target_trajectory_with_kalman(data_file, kalman_params, save_path)
     
+    elif visualization_mode == "full_tracking":
+        # Run full tracking and plot trajectories
+        run_full_tracking_and_plot(data_file, save_plot_path=save_path)
+    
     else:
         print(f"Unknown visualization mode: {visualization_mode}")
-        print("Valid options: basic_rdm, multi_target, clean_iterations, trajectory_kalman")"""
+        print("Valid options: basic_rdm, multi_target, clean_iterations, trajectory_kalman")
 
-if __name__ == "__main__":
-    data_file = "data/30-04/marche cercle 2 cibles.npz"
-    run_full_tracking_and_plot(data_file,
-                               save_plot_path=None)   # ou "trajectoires.png"
-
-
-"""if __name__ == "__main__":
-    main()"""
+if "main" in __name__:
+    main()
