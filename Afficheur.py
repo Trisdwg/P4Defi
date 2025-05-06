@@ -236,7 +236,7 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
 
     # ─── helper interne pour un affichage d'une frame ───────────────────────
     def _draw(axs, frame: int):
-        print(frame)
+        # print(frame)
         RDMs = Processor.compute_RDM(data_file, frame)
         for ch, ax in enumerate(axs):
             rdm = RDMs[ch]
@@ -259,6 +259,7 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
                 scat.set_offsets(phys_pts)
             else:
                 scat.set_offsets(np.empty((0, 2)))
+            
 
     # ─── création figure de base ────────────────────────────────────────────
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
@@ -307,6 +308,9 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
             fig.savefig(save_path, dpi=150)
             print(f"Figure sauvegardée → {save_path}")
         else:
+            timer = fig.canvas.new_timer(interval=1000)
+            timer.add_callback(plt.close)
+            timer.start()
             plt.show()
 
 
@@ -505,6 +509,7 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
         print(len(Processor.non_official))
         print(len(Processor.official))
         print(len(Processor.retired))
+        plot_multi_target_rdmsv2(data_file, anim=False,save_path=None, frame_idx=k)
         
 
     # 3) ———————————————————————— finalisation ————————————————————————

@@ -248,7 +248,7 @@ def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
 def extract_targets_from_cfar(rdm, mask,
                               min_distance_doppler=20,
                               min_distance_range=10,
-                              min_points_per_target=150):
+                              min_points_per_target=100):
     """
     Extrait les cibles à partir du masque CFAR en fusionnant les détections proches.
     Écarte les clusters contenant moins de `min_points_per_target` points.
@@ -491,7 +491,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
         if row[j] < MAX_GATING_DIST_4D:
             z = meas_state[j]
         else:
-            z = pred_state[j]
+            z = pred_state[i]
             all_trk[i].misses += 1
         
         all_trk[i].kalman_update(z)
@@ -504,7 +504,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
             all_trk[i].official_count += 1
     
     for tracker in all_trk:
-        if tracker.misses > 1 * (tracker.non_official_count + tracker.official_count):
+        if tracker.misses > 0.1 * (tracker.non_official_count + tracker.official_count):
             if (tracker in non_official):
                 non_official.remove(tracker)
             else :
