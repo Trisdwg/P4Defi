@@ -105,6 +105,7 @@ def plot_noisy_distances(noise_std=2):
     #ax.legend()
     ax.set_aspect('equal')
     plt.grid(True)
+    plt.savefig(f'noisy_ellipses_{noise_std}.png')
     plt.show()
 
 
@@ -172,9 +173,78 @@ def plot_least_square_target(noise_std=2):
     ax.legend()
     ax.set_aspect('equal')
     plt.grid(True)
+    plt.savefig(f'LS_ellipses_{noise_std}.png')
     plt.show()
 
-noise_std = 0.3
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import PowerNorm
+from scipy.optimize import least_squares
+
+# Fixed setup
+np.random.seed(42)
+emitter = np.asarray([-1, -1])
+receivers = np.asarray([[-0.35, 2.7], [1.8, 0.5], [5.1, -2.3], [0.0, 0.0]])
+target_true = np.asarray([3, 5])
+noise_std = 2
+
+# True distances
+r_e_true = np.linalg.norm(target_true - emitter)
+r_q_true = np.linalg.norm(receivers - target_true, axis=1)
+
+# Noisy measurements
+r_e_noisy = r_e_true + np.random.normal(0, noise_std)
+r_q_noisy = r_q_true + np.random.normal(0, noise_std, size=r_q_true.shape)
+s_meas = r_e_noisy + r_q_noisy
+
+# Residuals function
+def residuals(point):
+    return np.array([
+        (np.linalg.norm(point - emitter) + np.linalg.norm(point - recv) - s)
+        for recv, s in zip(receivers, s_meas)
+    ])
+
+# Cost on grid
+def cost_xy(x, y):
+    return np.sum(residuals(np.array([x, y]))**2)
+
+x_vals = np.linspace(-10, 10, 200)
+y_vals = np.linspace(-10, 10, 200)
+Xg, Yg = np.meshgrid(x_vals, y_vals)
+Z = np.vectorize(cost_xy)(Xg, Yg)
+Z_norm = 1 - Z / np.max(Z)
+Z_norm[Z_norm > 0.998] = 1
+# Plotting
+fig, ax = plt.subplots(figsize=(8, 6))
+heatmap = ax.imshow(
+    Z_norm,
+    origin='lower',
+    extent=[-10, 10, -10, 10],
+    aspect='auto',
+    cmap='bwr' 
+)
+contour = ax.contour(
+    Xg, Yg, Z_norm,
+    levels=[0.999],
+    colors='black',
+    linewidths=1.5,
+)
+
+plt.colorbar(heatmap, ax=ax, label='Proximité (non-linéaire)')
+ax.scatter(*target_true, color='black', label='Cible vraie', s=100)
+# LS estimate
+x0 = receivers.mean(axis=0)
+ls_result = least_squares(lambda pt: residuals(pt), x0=x0)
+est = ls_result.x
+ax.scatter(est[0], est[1], color='green', label='Estimation LS', s=100)
+
+ax.set_xlabel('X')
+ax.set_ylabel('Y')
+ax.set_title("Heatmap de l'idéalité de la solution")
+ax.legend()
+plt.savefig(f'heatmap_{noise_std}.png')
+plt.show()
+
 # Example usage
 plot_perfect_distances()
 plot_noisy_distances(noise_std)

@@ -56,6 +56,7 @@ def compute_RDM(file, frame_idx=0):
         rdm = np.abs(D)**2
         #bins_5m = int(np.round(5.0 / delta_r))
         # on ne garde que la moitié de l'axe des distances
+        rdm = np.roll(rdm, int(-OFFSETS[ch]/delta_r), axis=1)
         rdm = rdm[:, : (PAD_R * Ms)//2]
         RDM.append(rdm)
 
@@ -73,7 +74,7 @@ def compute_position(file, frame_idx=0):
 
     for ch, rdm in enumerate(RDM):
         _, r_idx = np.unravel_index(np.argmax(rdm), rdm.shape)
-        dist = max(2* r_idx * delta_r - OFFSETS[ch], 0.0)
+        dist = max(2* r_idx * delta_r, 0.0)
         distances.append(dist)
 
     def resid(p):
@@ -132,7 +133,7 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
     v_q = []
     for q, rdm in enumerate(RDMs):
         vindex, rindex = np.unravel_index(np.argmax(rdm), rdm.shape)
-        d = 2 * float(rindex)* delta_r - OFFSETS[q]
+        d = 2 * float(rindex)* delta_r
         v = float(vindex-(Mc*16)//2)*delta_v
         d_q.append(d)
         v_q.append(v)
@@ -434,7 +435,7 @@ def extract_all_targets(RDM_frame):
         mask, _ = ca_cfar_convolve(RDM_frame[ch])
         targets = extract_targets_from_cfar(RDM_frame[ch], mask)
         for (v_idx, r_idx) in (t[0] for t in targets):
-            r = float(r_idx) * delta_r - OFFSETS[ch]
+            r = float(r_idx) * delta_r
             v = float(v_idx-(Mc*16)//2)*delta_v
             all_t[ch].append((v, r))
     # remplace les listes vides par [None] pour que product() les traite
@@ -448,7 +449,7 @@ def make_intraframe_tracks(all_targets):
         track = [combo[ch] for ch in range(4) if combo[ch] is not None]
         acceptableTrack = True
         track_pos_speed = compute_track_position_and_speed(track)
-        if(track_pos_speed[0][0] == 0.0 and track_pos_speed[0][1] == 0.0 and track_pos_speed[1][0] == None and track_pos_speed[1][1] == None):
+        if(track_pos_speed[0][0] == 0.0 and track_pos_speed[0][1] == 0.0 or track_pos_speed[1][0] == None or track_pos_speed[1][1] == None):
             acceptableTrack = False
         if 2 <= len(track) <= 4 and acceptableTrack:
             tracks.append(track_pos_speed)
@@ -525,8 +526,9 @@ def tracking_update(non_official, frame_idx, file, official=None):
                 non_official.remove(tracked)
             elif tracked.non_official_count > 20 and tracked.misses < 0.15 * tracked.non_official_count:
                 # Assez de détections pour la promotion -> on le transfère vers official
-                non_official.remove(tracked)
                 official.append(tracked)
+                non_official.remove(tracked)
+                
         else:  # Le tracker est dans official
             tracked.official_count += 1
             
