@@ -540,11 +540,11 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
 
     ax.set_xlabel("X [m]")
     ax.set_ylabel("Y [m]")
-    ax.set_aspect('equal')
+    ax.set_aspect('auto')
     ax.set_title("Trajectoires des cibles (trackers retirés)")
     ax.legend()
     ax.grid(True)
-    plt.tight_layout()
+    #plt.tight_layout()
 
     if save_plot_path:
         fig.savefig(save_plot_path, dpi=150)
@@ -553,9 +553,73 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
         plt.show()
 
 
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_cfar(data_file, frame_idx=0, channel=0, save_path=None):
+    """
+    Affiche côte-à-côte :
+     - à gauche : seuils CFAR (cmap='viridis')
+     - à droite : RDM brute (cmap='jet') + contour des zones rdm>seuil
+    Pour une frame et un canal donnés.
+    """
+    # 1) Récupération RDM + CFAR
+    rdm = Processor.compute_RDM(data_file, frame_idx)[channel]
+    mask, thresholds = Processor.ca_cfar_convolve(rdm)
+    # mask est un booléen où True = dépassement du seuil
+
+    # 2) Coordonnées physiques
+    n_dop, n_rng = rdm.shape
+    dop_bins = np.arange(n_dop) - n_dop//2
+    ranges = np.arange(n_rng)*Processor.delta_r - Processor.OFFSETS[channel]
+    vels   = dop_bins * Processor.delta_v
+
+    # 3) Création de la figure
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12,5))
+
+    # --- 4) Sous-plot 1 : seuil CFAR ---
+    pcm1 = ax1.pcolormesh(
+        ranges, vels, thresholds,
+        cmap='jet', shading='auto'
+    )
+    fig.colorbar(pcm1, ax=ax1, shrink=0.8, label="Seuil CFAR")
+    ax1.set_title(f"Seuil CFAR\ncanal {channel}, frame {frame_idx}")
+    ax1.set_xlabel("Distance (m)")
+    ax1.set_ylabel("Vitesse (m/s)")
+    ax1.grid(False)
+
+    # --- 5) Sous-plot 2 : RDM + contours du mask ---
+    im2 = ax2.imshow(
+        rdm,
+        origin='lower',
+        extent=[ranges[0], ranges[-1], vels[0], vels[-1]],
+        aspect='auto',
+        cmap='jet'
+    )
+    fig.colorbar(im2, ax=ax2, shrink=0.8, label="Puissance RDM")
+    # tracer le contour de mask (rdm>seuil)
+    cs = ax2.contour(
+        ranges, vels, mask.astype(int),
+        levels=[0.5],          # la frontière True/False
+        colors='white',
+        linewidths=1.4,
+        linestyles='-'
+    )
+    ax2.set_title("RDM brute + zones > seuil CFAR")
+    ax2.set_xlabel("Distance (m)")
+    ax2.set_ylabel("Vitesse (m/s)")
+    ax2.grid(False)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150)
+        print(f"Figure sauvegardée → {save_path}")
+    else:
+        plt.show()
+
 def main():
     # File path - update with your data file
-    data_file = "data/30-04/marche 2-15m.npz"
+    data_file = "data/30-04/croisement y 2-15m.npz"
     
     # Visualization mode selection
     # Choose one of: "basic_rdm", "multi_target", "clean_iterations", "trajectory_kalman"
@@ -592,6 +656,11 @@ def main():
     elif visualization_mode == "full_tracking":
         # Run full tracking and plot trajectories
         run_full_tracking_and_plot(data_file, save_plot_path=save_path)
+    
+    elif visualization_mode == "plot_cfar":
+        # exemple : frame 0, canal 2
+        plot_cfar(data_file, frame_idx=0, channel=0, save_path=save_path)
+
     
     else:
         print(f"Unknown visualization mode: {visualization_mode}")

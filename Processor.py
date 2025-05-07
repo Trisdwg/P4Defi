@@ -190,10 +190,13 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
                 (1 / np.sqrt(point_est[0]**2 + point_est[1]**2))
             ),
             (np.sum(takeRDM), 2),
-            dtype=int
         )
 
-        speed_est = np.linalg.inv(N.T @ N) @ N.T @ v_q
+        try:
+            speed_est = np.linalg.inv(N.T @ N) @ N.T @ v_q
+        except np.linalg.LinAlgError:
+            # chute propre : on retourne une vitesse nulle ou None
+            speed_est = np.array([None, None])
         # print(speed_est)
         z = np.concatenate((point_est,speed_est))
 
@@ -235,7 +238,7 @@ def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
 
     # Convolve to get sum of training cells at each position
     padded_rdm = np.pad(rdm, ((total_doppler // 2, total_doppler // 2),
-                              (total_range // 2, total_range // 2)), mode='wrap')
+                              (total_range // 2, total_range // 2)), mode='edge')
     training_sums = fftconvolve(padded_rdm, kernel_cfar, mode='valid')
 
     # Compute thresholds
@@ -378,7 +381,11 @@ def compute_track_position_and_speed(track):
             dtype=int
         )
 
-        speed_est = np.linalg.inv(N.T @ N) @ N.T @ v_q
+        try:
+            speed_est = np.linalg.inv(N.T @ N) @ N.T @ v_q
+        except np.linalg.LinAlgError:
+            # chute propre : on retourne une vitesse nulle ou None
+            speed_est = np.array([None, None])
 
     return [(point_est[0],point_est[1]),(speed_est[0],speed_est[1])]
 
@@ -458,7 +465,7 @@ def make_intraframe_tracks(all_targets):
     
 def tracking_init(file) :
     global NEXT_ID
-    RDM = compute_RDM(file, 0)
+    RDM = compute_RDM(file,4)
     all_tragets = extract_all_targets(RDM)
     tracks = make_intraframe_tracks(all_tragets)
     for i, track in enumerate(tracks):
@@ -533,7 +540,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
             tracked.official_count += 1
             
             # Décision pour les trackers official uniquement
-            if tracked.misses > 0.4 * (tracked.non_official_count + tracked.official_count):
+            if tracked.misses > 0.7 * (tracked.non_official_count + tracked.official_count):
                 # Trop de détections manquées pour un tracker official -> on le retire
                 retired.append(tracked)
                 official.remove(tracked)
