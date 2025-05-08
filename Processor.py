@@ -11,14 +11,10 @@ import time
 # Paramètres physiques 
 # ===========================================================================
 
-ANTENNA_POS = np.asarray([
-    [-0.35, 2.7],     # Channel 0 (common focus)
-    [1.8, 0.5],   # Channel 1
-    [5.1, -2.3],    # Channel 2
-    [0.0, 0.0],     # Channel 3
-])
 OFFSETS = np.asarray([ 7.33982036,  7.3548503 , 10.86700599,  3.64670659])/2
+OFFSETS_2 = np.asarray([4.63640474, 8.4018184, 8.3141635, 11.66615912])/2
 ANTENNA_POS = np.asarray([[-0.35,2.7],[1.8,0.5],[5.1,-2.3],[0.0,0.0]])
+ANTENNA_POS_2 = np.asarray([[0.0,0.0],[-2.5,1.6],[2.05,0.0],[2.4,0.9]])
 
 def load_file(file) :
     file = np.load(file)
@@ -47,21 +43,39 @@ delta_v = 3e8 / (2 * (f0 * Mc * Tc * PAD_D))
 
 def compute_RDM(file, frame_idx=0):
     data, f0, B, Ms, Mc, Ts, Tc = load_file(file)
+
+    # Choix du jeu d'offsets
+    # si le chemin ou le nom du fichier contient "data/18-04", on prend OFFSETS_2
+    if "data/18-04" in file:
+        offsets = OFFSETS_2
+    else:
+        offsets = OFFSETS
+
     RDM = []
     for ch in range(data.shape[1]):
         sig = data[frame_idx, ch].astype(float).reshape(Mc, Ms)
+        # centrage en amplitude
         sig -= sig.mean(axis=0, keepdims=True)
+
+        # FFT rang puis FFT Doppler
         R = np.fft.fft(sig, n=PAD_R * Ms, axis=1)
-        D = np.fft.fftshift(np.fft.fft(R, n=PAD_D * Mc, axis=0),axes=0)
+        D = np.fft.fftshift(
+                np.fft.fft(R, n=PAD_D * Mc, axis=0),
+                axes=0
+            )
         rdm = np.abs(D)**2
-        #bins_5m = int(np.round(5.0 / delta_r))
-        # on ne garde que la moitié de l'axe des distances
-        rdm = np.roll(rdm, int(-OFFSETS[ch]/delta_r), axis=1)
+
+        # Correction des distances par décalage subpixel
+        # => on roule la carte RDM selon l'offset spécifique à ce canal
+        shift_bins = int(np.round(-offsets[ch] / delta_r))
+        rdm = np.roll(rdm, shift_bins, axis=1)
+
+        # on ne garde que la moitié avant de l’axe distances
         rdm = rdm[:, : (PAD_R * Ms)//2]
+
         RDM.append(rdm)
 
     return RDM
-
 # ===========================================================================
 # Partie 2 : Tracking monocible multistatique
 # ===========================================================================
@@ -210,7 +224,7 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
 # ===========================================================================
 
 def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
-                     window_size_doppler=45, window_size_range=15, alpha=10.0):
+                     window_size_doppler=45,window_size_range=15, alpha=10.0):
     n_doppler, n_range = rdm.shape
 
     # Total window size
@@ -540,7 +554,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
             tracked.official_count += 1
             
             # Décision pour les trackers official uniquement
-            if tracked.misses > 0.7 * (tracked.non_official_count + tracked.official_count):
+            if tracked.misses > 0.35 * (tracked.non_official_count + tracked.official_count):
                 # Trop de détections manquées pour un tracker official -> on le retire
                 retired.append(tracked)
                 official.remove(tracked)

@@ -6,6 +6,7 @@ import Processor
 from tqdm import tqdm
 import imageio.v2 as imageio
 from itertools import cycle
+import argparse
 
 # Constants from the original code
 Offset = Processor.OFFSETS
@@ -33,7 +34,7 @@ def targets_to_physical_coords(targets, delta_r, delta_v, N_v, channel_idx=0):
     points = []
     for (d_idx, r_idx), _ in targets:
         v = (d_idx - N_v // 2) * delta_v
-        r = r_idx * delta_r - Offset[channel_idx]
+        r = r_idx * delta_r 
         points.append((r, v))
     return np.array(points) if points else np.empty((0, 2))
 
@@ -52,7 +53,7 @@ def plot_basic_rdms(data_file, anim=False, save_path=None):
         for ch in range(4):
             rdm = RDMs[ch]
             doppler_bins = np.arange(rdm.shape[0]) - rdm.shape[0] // 2
-            ranges = np.arange(rdm.shape[1]) * delta_r - Offset[ch]
+            ranges = np.arange(rdm.shape[1]) * delta_r
             velocities = doppler_bins * delta_v
             
             axs[ch].imshow(
@@ -91,7 +92,7 @@ def plot_basic_rdms(data_file, anim=False, save_path=None):
         for ch in range(4):
             rdm = Processor.compute_RDM(data_file, 0)[ch]
             doppler_bins = np.arange(rdm.shape[0]) - rdm.shape[0] // 2
-            ranges = np.arange(rdm.shape[1]) * delta_r - Offset[ch]
+            ranges = np.arange(rdm.shape[1]) * delta_r
             velocities = doppler_bins * delta_v
             
             img = axs[ch].imshow(
@@ -159,13 +160,13 @@ def plot_multi_target_rdms(data_file, save_path = None,
             phys_pts = targets_to_physical_coords(targets, delta_r, delta_v, n_doppler, ch)
 
             doppler_bins = np.arange(n_doppler) - n_doppler // 2
-            ranges_m = np.arange(n_range) * delta_r - Offset[ch]
+            ranges_m = np.arange(n_range) * delta_r 
             vels_mps = doppler_bins * delta_v
 
             im = ax.images[0]
             im.set_data(rdm)
             im.set_clim(vmin=rdm.min(), vmax=rdm.max())
-            ax.set_title(f"Canal {ch} – {len(phys_pts)} cible(s) – Frame {frame+1}/{N_frame}")
+            ax.set_title(f"Canal {ch} – {len(phys_pts)} cible(s) – Frame {frame+1}/{N_frame}")
 
             scat = ax.collections[0]
             if phys_pts.size:
@@ -181,7 +182,7 @@ def plot_multi_target_rdms(data_file, save_path = None,
         # placeholder, sera mis à jour par _draw
         dummy = np.zeros((n_doppler, n_range))
         doppler_bins = np.arange(n_doppler) - n_doppler // 2
-        ranges_m = np.arange(n_range) * delta_r - Offset[ch]
+        ranges_m = np.arange(n_range) * delta_r 
         vels_mps = doppler_bins * delta_v
         im = ax.imshow(
             dummy,
@@ -247,13 +248,13 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
             phys_pts = targets_to_physical_coords(targets, delta_r, delta_v, n_doppler, ch)
 
             doppler_bins = np.arange(n_doppler) - n_doppler // 2
-            ranges_m = np.arange(n_range) * delta_r - Offset[ch]
+            ranges_m = np.arange(n_range) * delta_r
             vels_mps = doppler_bins * delta_v
 
             im = ax.images[0]
             im.set_data(rdm)
             im.set_clim(vmin=rdm.min(), vmax=rdm.max())
-            ax.set_title(f"Canal {ch} – {len(phys_pts)} cible(s) – Frame {frame+1}/{N_frame}")
+            ax.set_title(f"Canal {ch} – {len(phys_pts)} cible(s) – Frame {frame+1}/{N_frame}")
 
             scat = ax.collections[0]
             if phys_pts.size:
@@ -270,7 +271,7 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
         # placeholder, sera mis à jour par _draw
         dummy = np.zeros((n_doppler, n_range))
         doppler_bins = np.arange(n_doppler) - n_doppler // 2
-        ranges_m = np.arange(n_range) * delta_r - Offset[ch]
+        ranges_m = np.arange(n_range) * delta_r 
         vels_mps = doppler_bins * delta_v
         im = ax.imshow(
             dummy,
@@ -521,7 +522,7 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
     # 4) ———————————————————————— tracé des trajectoires ————————————————————
     retired_trackers = Processor.retired
     if not retired_trackers:
-        print("Aucun tracker retiré : rien à tracer.")
+        print("Aucun tracker retiré : rien à tracer.")
         return
 
     fig, ax = plt.subplots(figsize=(6, 8))
@@ -532,14 +533,14 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
         traj = [state[0] for state in hist]     # positions (x,y)
         xs, ys = zip(*traj)
         ax.plot(xs, ys, marker='o', ms=3, lw=1.3,
-                color=col, label=f"Track {trk.id}")
+                color=col, label=f"Track {trk.id}")
 
     # (optionnel) affichage des antennes
     ant = Processor.ANTENNA_POS
     ax.scatter(ant[:,0], ant[:,1], marker='^', c='k', s=60, label="Antennes")
 
-    ax.set_xlabel("X [m]")
-    ax.set_ylabel("Y [m]")
+    ax.set_xlabel("X [m]")
+    ax.set_ylabel("Y [m]")
     ax.set_aspect('auto')
     ax.set_title("Trajectoires des cibles (trackers retirés)")
     ax.legend()
@@ -571,7 +572,7 @@ def plot_cfar(data_file, frame_idx=0, channel=0, save_path=None):
     # 2) Coordonnées physiques
     n_dop, n_rng = rdm.shape
     dop_bins = np.arange(n_dop) - n_dop//2
-    ranges = np.arange(n_rng)*Processor.delta_r - Processor.OFFSETS[channel]
+    ranges = np.arange(n_rng)*Processor.delta_r
     vels   = dop_bins * Processor.delta_v
 
     # 3) Création de la figure
@@ -618,53 +619,83 @@ def plot_cfar(data_file, frame_idx=0, channel=0, save_path=None):
         plt.show()
 
 def main():
-    # File path - update with your data file
-    data_file = "data/30-04/croisement y 2-15m.npz"
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Visualisation des données radar')
     
-    # Visualization mode selection
-    # Choose one of: "basic_rdm", "multi_target", "clean_iterations", "trajectory_kalman"
-    visualization_mode = "full_tracking"  # or "basic_rdm", "trajectory_kalman"
+    # Required arguments
+    parser.add_argument('data_file', type=str, nargs='?', 
+                      default="data/30-04/croisement y 2-15m.npz",
+                      help='Chemin vers le fichier de données (.npz)')
     
-    # Animation flag - if True, creates animation, otherwise static plot
-    anim = False
+    # Optional arguments
+    parser.add_argument('--mode', type=str, default='basic_rdm',
+                      choices=['basic_rdm', 'multi_target', 'multi_targetv2', 
+                              'trajectory_kalman', 'full_tracking', 'plot_cfar'],
+                      help='Mode de visualisation')
+    parser.add_argument('--anim', action='store_true',
+                      help='Activer l\'animation (si disponible pour le mode)')
+    parser.add_argument('--save', type=str, default=None,
+                      help='Chemin pour sauvegarder la visualisation')
+    parser.add_argument('--frame', type=int, default=0,
+                      help='Index de la frame à afficher (pour les modes non-animés)')
+    parser.add_argument('--channel', type=int, default=0,
+                      help='Canal à afficher (pour plot_cfar)')
     
-    # Save path - set to None to display plot instead of saving
-    save_path = None #"data/30-04/marche orga.gif"  # or "output.gif" for animations, "output.png" for static plots
+    args = parser.parse_args()
     
-    # Optional Kalman parameters
+    # Print configuration
+    print("\nConfiguration:")
+    print(f"Fichier de données : {args.data_file}")
+    print(f"Mode de visualisation : {args.mode}")
+    print(f"Animation : {'Activée' if args.anim else 'Désactivée'}")
+    if args.save:
+        print(f"Sauvegarde : {args.save}")
+    if args.mode in ['multi_targetv2', 'plot_cfar']:
+        print(f"Frame : {args.frame}")
+    if args.mode == 'plot_cfar':
+        print(f"Canal : {args.channel}")
+    print()
+    
+    # Set global variables based on data file path
+    global Offset, Pos
+    if "data/18-04" in args.data_file:
+        Offset = Processor.OFFSETS_2
+        Pos = Processor.ANTENNA_POS_2
+    else:
+        Offset = Processor.OFFSETS
+        Pos = Processor.ANTENNA_POS
+    
+    # Kalman parameters (if needed)
     kalman_params = {
         'kalman_x': np.array([0, 2, 0, 0.5]),  # Initial state [x, y, vx, vy]
         'kalman_p': np.eye(4) * 1,          # Initial covariance
-        'outlier_radius':100.0                  # Outlier radius
+        'outlier_radius': 100.0             # Outlier radius
     }
     
     # Choose visualization based on mode
-    if visualization_mode == "basic_rdm":
-        plot_basic_rdms(data_file, anim, save_path)
+    if args.mode == "basic_rdm":
+        plot_basic_rdms(args.data_file, args.anim, args.save)
     
-    elif visualization_mode == "multi_target":
-        plot_multi_target_rdms(data_file, anim = anim, save_path = None)
+    elif args.mode == "multi_target":
+        plot_multi_target_rdms(args.data_file, anim=args.anim, save_path=args.save)
 
-    elif visualization_mode == "multi_targetv2":
-        plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=0)
-        # plot_multi_target_rdmsv2(data_file, anim = anim, save_path = save_path, frame_idx=1)
+    elif args.mode == "multi_targetv2":
+        plot_multi_target_rdmsv2(args.data_file, anim=args.anim, 
+                                save_path=args.save, frame_idx=args.frame)
     
-    elif visualization_mode == "trajectory_kalman":
-        # Always animation for trajectory
-        plot_target_trajectory_with_kalman(data_file, kalman_params, save_path)
+    elif args.mode == "trajectory_kalman":
+        plot_target_trajectory_with_kalman(args.data_file, kalman_params, args.save)
     
-    elif visualization_mode == "full_tracking":
-        # Run full tracking and plot trajectories
-        run_full_tracking_and_plot(data_file, save_plot_path=save_path)
+    elif args.mode == "full_tracking":
+        run_full_tracking_and_plot(args.data_file, save_plot_path=args.save)
     
-    elif visualization_mode == "plot_cfar":
-        # exemple : frame 0, canal 2
-        plot_cfar(data_file, frame_idx=0, channel=0, save_path=save_path)
-
+    elif args.mode == "plot_cfar":
+        plot_cfar(args.data_file, frame_idx=args.frame, 
+                 channel=args.channel, save_path=args.save)
     
     else:
-        print(f"Unknown visualization mode: {visualization_mode}")
-        print("Valid options: basic_rdm, multi_target, clean_iterations, trajectory_kalman")
+        print(f"Mode de visualisation inconnu: {args.mode}")
+        print("Options valides: basic_rdm, multi_target, multi_targetv2, trajectory_kalman, full_tracking, plot_cfar")
 
-if "main" in __name__:
+if __name__ == "__main__":
     main()
