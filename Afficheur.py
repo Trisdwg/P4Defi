@@ -478,6 +478,7 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
     • Lance le suivi multicible sur TOUTES les frames du fichier.
     • À la fin, affiche (ou enregistre) les trajectoires (x,y) des trackers
       passés en liste `retired`, chaque cible de couleur différente.
+    • Ajoute des petites flèches entre chaque point pour indiquer la direction.
     """
     Processor.NEXT_ID = 0  # reset ID counter for new run
 
@@ -513,8 +514,6 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
             print(trk)
         print(f"number of off trackers after frame {k} = {len(Processor.official)}")
         print(f"number of retired trackers after frame {k} = {len(Processor.retired)}")
-        #plot_multi_target_rdmsv2(data_file, anim=False,save_path=None, frame_idx=k)
-        
 
     # 3) ———————————————————————— finalisation ————————————————————————
     Processor.tracking_finalize(Processor.official)   # pousse tout dans retired
@@ -532,8 +531,27 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
         hist = trk.history
         traj = [state[0] for state in hist]     # positions (x,y)
         xs, ys = zip(*traj)
+        
+        # Tracer la trajectoire
         ax.plot(xs, ys, marker='o', ms=3, lw=1.3,
                 color=col, label=f"Track {trk.id}")
+        
+        # Calculer et tracer les vecteurs de vitesse entre chaque point
+        for i in range(len(traj)-1):
+            # Calculer le vecteur de vitesse entre deux points consécutifs
+            dx = xs[i+1] - xs[i]
+            dy = ys[i+1] - ys[i]
+            
+            # Normaliser le vecteur pour une longueur constante
+            norm = np.sqrt(dx*dx + dy*dy)
+            if norm > 0:  # Éviter la division par zéro
+                dx = dx / norm * 0.1  # 0.1 est la longueur de la flèche
+                dy = dy / norm * 0.1
+            
+            # Tracer la flèche
+            ax.quiver(xs[i], ys[i], dx, dy,
+                     color=col, scale=1, scale_units='inches',
+                     width=0.005, headwidth=2, headlength=2, headaxislength=2)
 
     # (optionnel) affichage des antennes
     ant = Processor.ANTENNA_POS
@@ -545,7 +563,6 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
     ax.set_title("Trajectoires des cibles (trackers retirés)")
     ax.legend()
     ax.grid(True)
-    #plt.tight_layout()
 
     if save_plot_path:
         fig.savefig(save_plot_path, dpi=150)
