@@ -473,7 +473,7 @@ def plot_target_trajectory_with_kalman(
     else:
         plt.show()
 
-def run_full_tracking_and_plot(data_file, save_plot_path=None):
+def run_full_tracking_and_plot(data_file, save_plot_path=None, dist_threshold=2.0, angle_threshold=15.0, overlap_threshold=0.6):
     """
     • Lance le suivi multicible sur TOUTES les frames du fichier.
     • À la fin, affiche (ou enregistre) les trajectoires (x,y) des trackers
@@ -517,6 +517,13 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None):
 
     # 3) ———————————————————————— finalisation ————————————————————————
     Processor.tracking_finalize(Processor.official)   # pousse tout dans retired
+    
+    # 3.5) ——————————————————————— clusterisation ———————————————————————
+    print("Clusterisation des trajectoires...")
+    n_before = len(Processor.retired)
+    Processor.cluster_retired_trackers(distance_threshold=dist_threshold, angle_threshold=angle_threshold, time_overlap_threshold=overlap_threshold)
+    n_after = len(Processor.retired)
+    print(f"Clusterisation terminée : {n_before} trajectoires -> {n_after} trajectoires")
 
     # 4) ———————————————————————— tracé des trajectoires ————————————————————
     retired_trackers = Processor.retired
@@ -635,19 +642,189 @@ def plot_cfar(data_file, frame_idx=0, channel=0, save_path=None):
     else:
         plt.show()
 
+def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, angle_threshold=15.0, overlap_threshold=0.6):
+    """
+    Effectue le tracking complet et la clusterisation, puis anime l'évolution frame 
+    par frame des trackers pour montrer comment ils se déplacent dans le temps.
+    
+    Args:
+        data_file: Chemin vers le fichier de données
+        save_path: Chemin pour sauvegarder l'animation
+        dist_threshold: Seuil de distance pour clustering
+        angle_threshold: Seuil d'angle pour clustering
+        overlap_threshold: Seuil de chevauchement pour clustering
+    """
+    # 0) ————————————————————————————————————————————————————————————————
+    #    Nettoyage et initialisation
+    Processor.NEXT_ID = 0
+    Processor.non_official.clear()
+    Processor.official.clear()
+    Processor.retired.clear()
+
+    # 1) ————————————————————————— Exécution du tracking complet ——————————————————————————
+    data, *_ = Processor.load_file(data_file)
+    N_frame = data.shape[0]
+    
+    print(f"Exécution du tracking sur {N_frame} frames...")
+    
+    # Initialiser le tracking
+    Processor.tracking_init(data_file)
+    print(f"Initialisation: {len(Processor.non_official)} trackers non officiels, {len(Processor.official)} trackers officiels")
+    
+    # Suivre sur toutes les frames
+    for k in range(1, N_frame):
+        Processor.tracking_update(
+            Processor.non_official,
+            k,
+            data_file,
+            Processor.official
+        )
+    
+    # Finaliser le tracking
+    Processor.tracking_finalize(Processor.official)
+    
+    # Clusteriser les trackers
+    print("Clusterisation des trajectoires...")
+    n_before = len(Processor.retired)
+    Processor.cluster_retired_trackers(
+        distance_threshold=dist_threshold, 
+        angle_threshold=angle_threshold
+    )
+    n_after = len(Processor.retired)
+    print(f"Clusterisation terminée: {n_before} → {n_after} trajectoires")
+    
+    # Si aucun tracker, rien à animer
+    if not Processor.retired:
+        print("Aucun tracker à animer!")
+        return
+    
+    # 2) ————————————————————————— Créer l'animation ——————————————————————————
+    retired_trackers = Processor.retired
+    
+    # Déterminer la plage de frames couverte par tous les trackers
+    min_frame = min(trk.frame_start for trk in retired_trackers)
+    max_frame = max(trk.frame_start + len(trk.history) - 1 for trk in retired_trackers)
+    animation_length = max_frame - min_frame + 1
+    
+    print(f"Animation sur {animation_length} frames (de {min_frame} à {max_frame})")
+    
+    # Créer la figure et les axes
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Afficher les antennes
+    ant = Processor.ANTENNA_POS
+    ax.scatter(ant[:,0], ant[:,1], marker='^', c='k', s=60, label="Antennes")
+    
+    # Préparer les couleurs pour chaque tracker
+    color_cycle = cycle(plt.cm.tab10.colors)
+    colors = {trk.id: next(color_cycle) for trk in retired_trackers}
+    
+    # Préparer des collections vides pour chaque tracker
+    trajectories = {}  # Stocke toutes les lignes de trajectoire
+    positions = {}     # Stocke les marqueurs de position actuelle
+    
+    for trk in retired_trackers:
+        # Trajectoire complète (sera mise à jour pendant l'animation)
+        line, = ax.plot([], [], '-', lw=1.5, color=colors[trk.id], alpha=0.7)
+        trajectories[trk.id] = line
+        
+        # Position actuelle
+        scatter = ax.scatter([], [], marker='o', s=80, color=colors[trk.id], 
+                          edgecolor='w', linewidth=1.5, zorder=10, label=f"Tracker {trk.id}")
+        positions[trk.id] = scatter
+    
+    # Légende (affichée une seule fois avec tous les trackers)
+    ax.legend(loc='upper right')
+    
+    # Titre avec numéro de frame (sera mis à jour)
+    title = ax.set_title(f"Frame: {min_frame}/{max_frame}")
+    
+    # Configuration des axes
+    ax.set_xlabel("X [m]")
+    ax.set_ylabel("Y [m]")
+    ax.set_xlim(-15, 15)  # Ajuster selon vos données
+    ax.set_ylim(-5, 26)   # Ajuster selon vos données
+    ax.grid(True, linestyle='--', alpha=0.7)
+    
+    # Fonction d'animation
+    def update(frame_idx):
+        # Convertir l'indice d'animation en numéro de frame réel
+        real_frame = min_frame + frame_idx
+        
+        # Mettre à jour le titre
+        title.set_text(f"Frame: {real_frame}/{max_frame}")
+        
+        # Liste des éléments à retourner pour le blitting
+        artists = [title]
+        
+        # Mettre à jour chaque tracker
+        for trk in retired_trackers:
+            trk_start = trk.frame_start
+            trk_end = trk_start + len(trk.history) - 1
+            
+            # Si le tracker existe à cette frame
+            if trk_start <= real_frame <= trk_end:
+                # Indice dans l'historique du tracker
+                hist_idx = real_frame - trk_start
+                
+                # Extraire toutes les positions jusqu'à la frame actuelle
+                positions_up_to_now = [state[0] for state in trk.history[:hist_idx+1]]
+                xs, ys = zip(*positions_up_to_now) if positions_up_to_now else ([], [])
+                
+                # Mettre à jour la trajectoire
+                trajectories[trk.id].set_data(xs, ys)
+                artists.append(trajectories[trk.id])
+                
+                # Mettre à jour la position actuelle
+                if positions_up_to_now:
+                    curr_pos = np.array([positions_up_to_now[-1]])
+                    positions[trk.id].set_offsets(curr_pos)
+                    positions[trk.id].set_alpha(1.0)  # Visible
+                    artists.append(positions[trk.id])
+            
+            # Si le tracker n'existe pas encore ou n'existe plus à cette frame
+            else:
+                # Masquer la trajectoire et la position
+                trajectories[trk.id].set_data([], [])
+                positions[trk.id].set_alpha(0.0)  # Invisible
+                artists.append(trajectories[trk.id])
+                artists.append(positions[trk.id])
+        
+        return artists
+    
+    # Créer l'animation
+    ani = animation.FuncAnimation(
+        fig, 
+        update, 
+        frames=animation_length,
+        interval=200,  # 200ms par frame
+        blit=True, 
+        repeat=True
+    )
+    
+    # Sauvegarder ou afficher
+    plt.tight_layout()
+    if save_path:
+        print(f"Sauvegarde de l'animation vers {save_path}...")
+        ani.save(save_path, writer='pillow', fps=5)
+        print(f"Animation sauvegardée!")
+    else:
+        plt.show()
+
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Visualisation des données radar')
     
     # Required arguments
     parser.add_argument('data_file', type=str, nargs='?', 
-                      default="data/30-04/croisement y 2-15m.npz",
+                      default="data/18-04/marche alea1.npz",
                       help='Chemin vers le fichier de données (.npz)')
     
     # Optional arguments
     parser.add_argument('--mode', type=str, default='basic_rdm',
                       choices=['basic_rdm', 'multi_target', 'multi_targetv2', 
-                              'trajectory_kalman', 'full_tracking', 'plot_cfar'],
+                              'trajectory_kalman', 'full_tracking', 'plot_cfar',
+                              'animate_trackers'],
                       help='Mode de visualisation')
     parser.add_argument('--anim', action='store_true',
                       help='Activer l\'animation (si disponible pour le mode)')
@@ -657,6 +834,14 @@ def main():
                       help='Index de la frame à afficher (pour les modes non-animés)')
     parser.add_argument('--channel', type=int, default=0,
                       help='Canal à afficher (pour plot_cfar)')
+    
+    # Clustering parameters
+    parser.add_argument('--dist-threshold', type=float, default=2.0,
+                      help='Seuil de distance (m) pour le clustering de trajectoires')
+    parser.add_argument('--angle-threshold', type=float, default=15.0,
+                      help='Seuil d\'angle (degrés) pour le clustering de trajectoires')
+    parser.add_argument('--overlap-threshold', type=float, default=0.6,
+                      help='Seuil de chevauchement temporel (0-1) pour le clustering de trajectoires')
     
     args = parser.parse_args()
     
@@ -671,6 +856,11 @@ def main():
         print(f"Frame : {args.frame}")
     if args.mode == 'plot_cfar':
         print(f"Canal : {args.channel}")
+    if args.mode in ['full_tracking', 'animate_trackers']:
+        print(f"Paramètres de clustering:")
+        print(f"  - Seuil de distance : {args.dist_threshold} m")
+        print(f"  - Seuil d'angle : {args.angle_threshold}°")
+        print(f"  - Seuil de chevauchement : {args.overlap_threshold}")
     print()
     
     # Set global variables based on data file path
@@ -704,15 +894,24 @@ def main():
         plot_target_trajectory_with_kalman(args.data_file, kalman_params, args.save)
     
     elif args.mode == "full_tracking":
-        run_full_tracking_and_plot(args.data_file, save_plot_path=args.save)
+        run_full_tracking_and_plot(args.data_file, save_plot_path=args.save,
+                                  dist_threshold=args.dist_threshold,
+                                  angle_threshold=args.angle_threshold,
+                                  overlap_threshold=args.overlap_threshold)
     
     elif args.mode == "plot_cfar":
         plot_cfar(args.data_file, frame_idx=args.frame, 
                  channel=args.channel, save_path=args.save)
+                 
+    elif args.mode == "animate_trackers":
+        animate_tracker_evolution(args.data_file, save_path=args.save,
+                                 dist_threshold=args.dist_threshold,
+                                 angle_threshold=args.angle_threshold,
+                                 overlap_threshold=args.overlap_threshold)
     
     else:
         print(f"Mode de visualisation inconnu: {args.mode}")
-        print("Options valides: basic_rdm, multi_target, multi_targetv2, trajectory_kalman, full_tracking, plot_cfar")
+        print("Options valides: basic_rdm, multi_target, multi_targetv2, trajectory_kalman, full_tracking, plot_cfar, animate_trackers")
 
 if __name__ == "__main__":
     main()

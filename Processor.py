@@ -70,7 +70,7 @@ def compute_RDM(file, frame_idx=0):
         shift_bins = int(np.round(-offsets[ch] / delta_r))
         rdm = np.roll(rdm, shift_bins, axis=1)
 
-        # on ne garde que la moitié avant de l’axe distances
+        # on ne garde que la moitié avant de l'axe distances
         rdm = rdm[:, : (PAD_R * Ms)//2]
 
         RDM.append(rdm)
@@ -86,6 +86,12 @@ def compute_position(file, frame_idx=0):
     RDM = compute_RDM(file, frame_idx)
     distances = []
 
+    # Choix des positions d'antennes en fonction du chemin de fichier
+    if "data/18-04" in file:
+        antenna_pos = ANTENNA_POS_2
+    else:
+        antenna_pos = ANTENNA_POS
+
     for ch, rdm in enumerate(RDM):
         _, r_idx = np.unravel_index(np.argmax(rdm), rdm.shape)
         dist = max(2* r_idx * delta_r, 0.0)
@@ -95,12 +101,12 @@ def compute_position(file, frame_idx=0):
         x, y = p
         res = []
         for q,dmes in enumerate(distances):
-            d = (x**2+y**2)**(1/2) + ((x-ANTENNA_POS[q][0])**2 + (y-ANTENNA_POS[q][1])**2)**(1/2)
+            d = (x**2+y**2)**(1/2) + ((x-antenna_pos[q][0])**2 + (y-antenna_pos[q][1])**2)**(1/2)
             res.append(dmes-d)
         return res
 
 
-    p0 = np.mean(ANTENNA_POS, axis=0)
+    p0 = np.mean(antenna_pos, axis=0)
     sol = least_squares(resid, p0, loss='cauchy')
     return tuple(sol.x)
 
@@ -109,7 +115,14 @@ def compute_speed(file, frame_idx=0):
     # 1) Estimer la position P
     x, y = compute_position(file, frame_idx)
     P = np.array([x, y])
-    T = ANTENNA_POS[0]
+    
+    # Choix des positions d'antennes en fonction du chemin de fichier
+    if "data/18-04" in file:
+        antenna_pos = ANTENNA_POS_2
+    else:
+        antenna_pos = ANTENNA_POS
+        
+    T = antenna_pos[0]
 
     # 2) Charger le RDM et extraire les vitesses radiales u_q pour q=0..3
     RDM = compute_RDM(file, frame_idx)
@@ -131,7 +144,7 @@ def compute_speed(file, frame_idx=0):
     n_tx = (P - T) / np.linalg.norm(P - T)
     H = []
     for ch in range(4):
-        Rq = ANTENNA_POS[ch]
+        Rq = antenna_pos[ch]
         n_rx = (P - Rq) / np.linalg.norm(P - Rq)
         hq = 0.5 * (n_tx + n_rx)
         H.append(hq)
@@ -155,6 +168,12 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
     d_q = np.array(d_q)
     v_q = np.array(v_q)
 
+    # Choix des positions d'antennes en fonction du chemin de fichier
+    if "data/18-04" in file:
+        antenna_pos = ANTENNA_POS_2
+    else:
+        antenna_pos = ANTENNA_POS
+
     deltaTFrame = Mc * Tc
     kalman_F = np.array([[1,0,deltaTFrame,0],[0,1,0,deltaTFrame],[0,0,1,0],[0,0,0,1]])
     kalman_Q = np.array([[0,0,0,0],[0,0,0,0],[0,0,0.1,0],[0,0,0,0.1]])
@@ -168,8 +187,8 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
     z = np.zeros(4)
     # point_est = speed_est = np.zeros(2)
     for q in range(len(takeRDM)):
-        dp = (kalman_xp[0]**2+kalman_xp[1]**2)**(1/2) + ((kalman_xp[0]-ANTENNA_POS[q][0])**2 + (kalman_xp[1]-ANTENNA_POS[q][1])**2)**(1/2)
-        vp = 0.5 * ((np.array([kalman_xp[0]-ANTENNA_POS[q][0], kalman_xp[1]-ANTENNA_POS[q][1]]) @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0]-ANTENNA_POS[q][0])**2+(kalman_xp[1]-ANTENNA_POS[q][1])**2)) +
+        dp = (kalman_xp[0]**2+kalman_xp[1]**2)**(1/2) + ((kalman_xp[0]-antenna_pos[q][0])**2 + (kalman_xp[1]-antenna_pos[q][1])**2)**(1/2)
+        vp = 0.5 * ((np.array([kalman_xp[0]-antenna_pos[q][0], kalman_xp[1]-antenna_pos[q][1]]) @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0]-antenna_pos[q][0])**2+(kalman_xp[1]-antenna_pos[q][1])**2)) +
                     (kalman_xp[:2] @ kalman_xp[2:])*(1/np.sqrt((kalman_xp[0])**2+(kalman_xp[1])**2)))
         dist = np.sqrt((dp - d_q[q])**2+(vp - v_q[q])**2)
         if(dist >= outlierRadius):
@@ -188,7 +207,7 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
             x,y = p
             res = []
             for q,dmes in enumerate(d_q):
-                d = (x**2+y**2)**(1/2) + ((x-ANTENNA_POS[q][0])**2 + (y-ANTENNA_POS[q][1])**2)**(1/2)
+                d = (x**2+y**2)**(1/2) + ((x-antenna_pos[q][0])**2 + (y-antenna_pos[q][1])**2)**(1/2)
                 res.append(dmes-d)
             return res
         
@@ -198,8 +217,8 @@ def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
 
         N = np.fromfunction(
             lambda q, i: 0.5 * (
-                (point_est[i.astype(int)] - ANTENNA_POS[q.astype(int), i.astype(int)]) *
-                (1 / np.sqrt((point_est[0] - ANTENNA_POS[q.astype(int), 0])**2 + (point_est[1] - ANTENNA_POS[q.astype(int), 1])**2)) +
+                (point_est[i.astype(int)] - antenna_pos[q.astype(int), i.astype(int)]) *
+                (1 / np.sqrt((point_est[0] - antenna_pos[q.astype(int), 0])**2 + (point_est[1] - antenna_pos[q.astype(int), 1])**2)) +
                 point_est[i.astype(int)] *
                 (1 / np.sqrt(point_est[0]**2 + point_est[1]**2))
             ),
@@ -266,7 +285,7 @@ def ca_cfar_convolve(rdm, guard_size_doppler=10, guard_size_range=11,
 def extract_targets_from_cfar(rdm, mask,
                               min_distance_doppler=20,
                               min_distance_range=10,
-                              min_points_per_target=120):
+                              min_points_per_target=60):
     """
     Extrait les cibles à partir du masque CFAR en fusionnant les détections proches.
     Écarte les clusters contenant moins de `min_points_per_target` points.
@@ -368,14 +387,24 @@ def cfar_2d(rdm):
     
     return targets, mask, thresholds
 
-def compute_track_position_and_speed(track):
+def compute_track_position_and_speed(track, file=None):
+    """
+    Calcule la position et la vitesse basées sur une piste (track).
+    Utilise le paramètre file pour déterminer quelle configuration d'antennes utiliser.
+    """
+    # Déterminer la configuration d'antennes à utiliser
+    if file and "data/18-04" in file:
+        antenna_pos = ANTENNA_POS_2
+    else:
+        antenna_pos = ANTENNA_POS
+        
     d_q = [2*track[i][1] for i in range(len(track))] #*2 car r -> d
     v_q = [track[i][0] for i in range(len(track))]
     def diff(p):
         x,y = p
         res = []
         for q,dmes in enumerate(d_q):
-            d = (x**2+y**2)**(1/2) + ((x-ANTENNA_POS[q][0])**2 + (y-ANTENNA_POS[q][1])**2)**(1/2)
+            d = (x**2+y**2)**(1/2) + ((x-antenna_pos[q][0])**2 + (y-antenna_pos[q][1])**2)**(1/2)
             res.append(dmes-d)
         return res
     
@@ -386,8 +415,8 @@ def compute_track_position_and_speed(track):
     if (point_est[0] != 0.0 and point_est[1] != 0.0):
         N = np.fromfunction(
             lambda q, i: 0.5 * (
-                (point_est[i.astype(int)] - ANTENNA_POS[q.astype(int), i.astype(int)]) *
-                (1 / np.sqrt((point_est[0] - ANTENNA_POS[q.astype(int), 0])**2 + (point_est[1] - ANTENNA_POS[q.astype(int), 1])**2)) +
+                (point_est[i.astype(int)] - antenna_pos[q.astype(int), i.astype(int)]) *
+                (1 / np.sqrt((point_est[0] - antenna_pos[q.astype(int), 0])**2 + (point_est[1] - antenna_pos[q.astype(int), 1])**2)) +
                 point_est[i.astype(int)] *
                 (1 / np.sqrt(point_est[0]**2 + point_est[1]**2))
             ),
@@ -416,7 +445,7 @@ non_official = []
 official = []
 retired = []
 class tracker:
-    def __init__(self, id, kalman_x, kalman_P) :
+    def __init__(self, id, kalman_x, kalman_P, frame_start=0) :
         self.id = id
         self.kalman_xp = None
         self.kalman_Pp = None
@@ -426,6 +455,7 @@ class tracker:
         self.non_official_count = 0
         self.misses = 0
         self.official_count = 0
+        self.frame_start = frame_start  # Nouveau: frame à laquelle le tracker a commencé
         self.history = [[(kalman_x[0], kalman_x[1]),(kalman_x[2], kalman_x[3])]] # [(pos),(vel)]
     
     def kalman_predict(self):
@@ -445,10 +475,10 @@ class tracker:
         return self.kalman_x, self.kalman_P
     
     def __str__(self):
-        return f"Tracker ID: {self.id},\n Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P},\n Kalman Predicted State: {self.kalman_xp}, Kalman Predicted Covariance: {self.kalman_Pp}, \n Kalman R: {self.kalman_R} \n History: {self.history}, \n Misses: {self.misses}, Non-official Count: {self.non_official_count}, Official Count: {self.official_count},\n\n"
+        return f"Tracker ID: {self.id},\n Kalman State: {self.kalman_x}, Kalman Covariance: {self.kalman_P},\n Kalman Predicted State: {self.kalman_xp}, Kalman Predicted Covariance: {self.kalman_Pp}, \n Kalman R: {self.kalman_R} \n History: {self.history}, \n Misses: {self.misses}, Non-official Count: {self.non_official_count}, Official Count: {self.official_count},\n Frame Start: {self.frame_start}\n\n"
     
 
-def extract_all_targets(RDM_frame):
+def extract_all_targets(RDM_frame, file=None):
     """Retourne une liste à 4 entrées (une par canal) contenant
     soit la liste [(v, r), …] soit [None] si pas de cible."""
     all_t = [[] for _ in range(4)]
@@ -462,14 +492,14 @@ def extract_all_targets(RDM_frame):
     # remplace les listes vides par [None] pour que product() les traite
     return [chan if chan else [None] for chan in all_t]
 
-def make_intraframe_tracks(all_targets):
-    """Associe entre eux les canaux d’une même frame.
+def make_intraframe_tracks(all_targets, file=None):
+    """Associe entre eux les canaux d'une même frame.
        Une track = liste de (v, r) ayant >=2 canaux renseignés."""
     tracks = []
-    for combo in product(*all_targets):          # 4‑uplet (ou None)
+    for combo in product(*all_targets):          # 4-uplet (ou None)
         track = [combo[ch] for ch in range(4) if combo[ch] is not None]
         acceptableTrack = True
-        track_pos_speed = compute_track_position_and_speed(track)
+        track_pos_speed = compute_track_position_and_speed(track, file)
         if(track_pos_speed[0][0] == 0.0 and track_pos_speed[0][1] == 0.0 or track_pos_speed[1][0] == None or track_pos_speed[1][1] == None):
             acceptableTrack = False
         if 2 <= len(track) <= 4 and acceptableTrack:
@@ -479,17 +509,17 @@ def make_intraframe_tracks(all_targets):
     
 def tracking_init(file) :
     global NEXT_ID
-    RDM = compute_RDM(file,4)
-    all_tragets = extract_all_targets(RDM)
-    tracks = make_intraframe_tracks(all_tragets)
+    RDM = compute_RDM(file,0)  # Utiliser frame 0 pour l'initialisation
+    all_tragets = extract_all_targets(RDM, file)
+    tracks = make_intraframe_tracks(all_tragets, file)
     for i, track in enumerate(tracks):
-        non_official.append(tracker(NEXT_ID, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4)))
+        non_official.append(tracker(NEXT_ID, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), frame_start=0))
         NEXT_ID += 1
     return non_official
 
 
 from scipy.spatial.distance import cdist
-MAX_GATING_DIST_4D = 4                         # seuil en 4‑D
+MAX_GATING_DIST_4D = 3.5                         # seuil en 4-D
 
 def tracking_update(non_official, frame_idx, file, official=None):
     global NEXT_ID
@@ -502,7 +532,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
 
     # 2. ---------- extraction des mesures ----------
     RDM     = compute_RDM(file, frame_idx)
-    tracks  = make_intraframe_tracks(extract_all_targets(RDM))   # [(pos),(vel)]
+    tracks  = make_intraframe_tracks(extract_all_targets(RDM, file), file)   # [(pos),(vel)]
     # print(len(tracks), " tracks for frame", frame_idx, ":", tracks)
 
     # Initialiser assigned_cols comme un ensemble vide dans tous les cas
@@ -513,7 +543,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
         for trk in all_trk:
             trk.kalman_update(trk.kalman_xp)
     else:
-        # 3. ---------- matrices 4‑D ----------
+        # 3. ---------- matrices 4-D ----------
         pred_state = np.vstack([trk.kalman_xp for trk in all_trk])     # (N,4)
         meas_state = np.vstack([[p[0], p[1], v[0], v[1]] for p, v in tracks])  # (M,4)
 
@@ -567,18 +597,175 @@ def tracking_update(non_official, frame_idx, file, official=None):
 
             # Vérifie la proximité
             dists_to_existing = np.linalg.norm(pred_state - z, axis=1)
-            if np.any(dists_to_existing < 1.5):   # seuil à ajuster
+            if np.any(dists_to_existing < 2):   # seuil à ajuster
                 # print(f"--> Skip creating tracker for measurement {j}, too close to existing tracker")
                 continue
 
             # Crée le tracker si aucun doublon
-            new_trk = tracker(NEXT_ID, np.array([z[0], z[1], z[2], z[3]]), np.eye(4))
+            new_trk = tracker(NEXT_ID, np.array([z[0], z[1], z[2], z[3]]), np.eye(4), frame_start=frame_idx)
             NEXT_ID += 1
             non_official.append(new_trk)
             # print(f"--> Created new tracker {new_trk.id} for measurement {j}")
 
 
 def tracking_finalize(official):
-    # transfère VRAIMENT tous les trackers d’« official » vers « retired »
+    # transfère VRAIMENT tous les trackers d'« official » vers « retired »
     retired.extend(official)      # ou retired += official
     official.clear()
+
+def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_overlap_threshold=0.6):
+    """
+    Fusionne les trackers de la liste 'retired' qui sont trop proches et ont des directions similaires.
+    Version améliorée avec une approche plus robuste et moins sensible au chevauchement temporel.
+    
+    Args:
+        distance_threshold: Seuil de distance maximale entre les trajectoires (en mètres)
+        angle_threshold: Seuil d'angle maximal entre les directions (en degrés)
+        time_overlap_threshold: Proportion minimale de temps pendant lequel les trajectoires doivent se chevaucher
+    
+    Returns:
+        Liste des trackers après clustering
+    """
+    if len(retired) <= 1:
+        return retired
+    
+    # Fonction pour calculer l'angle entre deux vecteurs
+    def angle_between(v1, v2):
+        # Normaliser les vecteurs
+        v1_norm = v1 / np.linalg.norm(v1) if np.linalg.norm(v1) > 0 else v1
+        v2_norm = v2 / np.linalg.norm(v2) if np.linalg.norm(v2) > 0 else v2
+        # Calculer l'angle en degrés
+        angle_rad = np.arccos(np.clip(np.dot(v1_norm, v2_norm), -1.0, 1.0))
+        return np.degrees(angle_rad)
+    
+    # Nouvelle fonction pour calculer la distance minimale entre deux trajectoires
+    def min_distance(trk_i, trk_j):
+        # Extraire toutes les positions de chaque trajectoire
+        pos_i = np.array([state[0] for state in trk_i.history])
+        pos_j = np.array([state[0] for state in trk_j.history])
+        
+        # Calculer la distance minimale entre n'importe quelle paire de points
+        min_dist = float('inf')
+        for p_i in pos_i:
+            for p_j in pos_j:
+                dist = np.linalg.norm(np.array(p_i) - np.array(p_j))
+                if dist < min_dist:
+                    min_dist = dist
+        
+        return min_dist
+    
+    # Fonction pour vérifier si deux trajectoires sont temporellement proches
+    def are_temporally_close(trk_i, trk_j):
+        # Si les tracks se chevauchent, c'est évident
+        start_i = trk_i.frame_start
+        end_i = trk_i.frame_start + len(trk_i.history) - 1
+        
+        start_j = trk_j.frame_start
+        end_j = trk_j.frame_start + len(trk_j.history) - 1
+        
+        # Chevauchement standard
+        if max(start_i, start_j) <= min(end_i, end_j):
+            return True
+        
+        # Si non chevauchement, vérifier la proximité temporelle
+        gap = min(abs(end_i - start_j), abs(end_j - start_i))
+        max_allowed_gap = 10  # Nombre maximum de frames de gap autorisé
+        
+        return gap <= max_allowed_gap
+    
+    # Fonction pour vérifier si deux trajectoires peuvent être fusionnées
+    def can_merge(trk_i, trk_j):
+        # 1. Vérifier la distance spatiale
+        dist = min_distance(trk_i, trk_j)
+        if dist > distance_threshold:
+            return False
+        
+        # 2. Vérifier la proximité temporelle (chevauchement ou gap raisonnable)
+        if not are_temporally_close(trk_i, trk_j):
+            return False
+            
+        # 3. Vérifier la similitude de direction
+        # Calculer les vecteurs de direction moyenne
+        if len(trk_i.history) < 2 or len(trk_j.history) < 2:
+            # Si une des trajectoires est trop courte, ne pas vérifier l'angle
+            return True
+            
+        # Calculer les directions moyennes (fin - début pour les trajectoires assez longues)
+        dir_i = np.array(trk_i.history[-1][0]) - np.array(trk_i.history[0][0])
+        dir_j = np.array(trk_j.history[-1][0]) - np.array(trk_j.history[0][0])
+        
+        # Si l'un des vecteurs est trop court, utiliser les vitesses Kalman
+        if np.linalg.norm(dir_i) < 0.5:
+            dir_i = np.array([trk_i.kalman_x[2], trk_i.kalman_x[3]])
+        if np.linalg.norm(dir_j) < 0.5:
+            dir_j = np.array([trk_j.kalman_x[2], trk_j.kalman_x[3]])
+            
+        # Si les vecteurs sont toujours trop courts, considérer que les directions sont similaires
+        if np.linalg.norm(dir_i) < 0.1 or np.linalg.norm(dir_j) < 0.1:
+            return True
+            
+        angle = angle_between(dir_i, dir_j)
+        return angle <= angle_threshold
+    
+    # Créer une copie de la liste des trackers
+    trackers = retired.copy()
+    
+    # Réaliser plusieurs passes de fusion pour s'assurer que toutes les fusions possibles sont effectuées
+    max_passes = 3
+    for pass_num in range(max_passes):
+        merges_done = False
+        
+        # Matrice d'adjacence pour les fusions potentielles
+        n = len(trackers)
+        merge_matrix = np.zeros((n, n), dtype=bool)
+        
+        # Construire la matrice d'adjacence
+        for i in range(n):
+            for j in range(i+1, n):
+                if can_merge(trackers[i], trackers[j]):
+                    merge_matrix[i, j] = merge_matrix[j, i] = True
+        
+        # Effectuer les fusions basées sur la matrice
+        i = 0
+        while i < len(trackers):
+            # Trouver tous les indices à fusionner avec i
+            to_merge = [j for j in range(len(trackers)) if j > i and merge_matrix[i, j]]
+            
+            if to_merge:
+                merges_done = True
+                # Obtenir tous les trackers à fusionner
+                merge_candidates = [trackers[i]] + [trackers[j] for j in to_merge]
+                
+                # Sélectionner le meilleur tracker basé sur le ratio de miss le plus bas
+                best_idx = 0
+                best_ratio = float('inf')
+                for idx, trk in enumerate(merge_candidates):
+                    total_frames = trk.non_official_count + trk.official_count
+                    ratio = trk.misses / total_frames if total_frames > 0 else 1.0
+                    if ratio < best_ratio or (ratio == best_ratio and len(trk.history) > len(merge_candidates[best_idx].history)):
+                        best_ratio = ratio
+                        best_idx = idx
+                
+                # Conserver le meilleur tracker
+                best_tracker = merge_candidates[best_idx]
+                print(f"Fusion des trackers: {[t.id for t in merge_candidates]} -> {best_tracker.id}")
+                
+                # Supprimer tous les trackers fusionnés sauf le meilleur
+                for idx in sorted(to_merge, reverse=True):
+                    trackers.pop(idx)
+                if best_idx != 0:  # Si le meilleur n'est pas le tracker i actuel
+                    trackers[i] = best_tracker
+                    
+                # Ne pas incrémenter i, car nous avons modifié la liste
+            else:
+                i += 1
+        
+        # Si aucune fusion n'a été faite dans cette passe, arrêter
+        if not merges_done:
+            break
+    
+    # Mettre à jour la liste des trackers retirés
+    retired.clear()
+    retired.extend(trackers)
+    
+    return trackers
