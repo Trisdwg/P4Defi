@@ -319,8 +319,10 @@ def plot_target_trajectory_with_kalman(
     save_path=None,
 ):
     """
-    Anime la position et la vitesse de la cible dans le plan (x, y) ; la trace
-    rouge affiche **toute** la trajectoire prédit / lissée par le filtre Kalman.
+    Anime la position et la vitesse de la cible dans le plan (x, y) ;
+    - Les états mesurés sont affichés en gris semi-transparent
+    - La trace rouge affiche **toute** la trajectoire prédit / lissée par le filtre Kalman avec 
+      des mini-flèches indiquant le sens du parcours
     """
     (
         _,
@@ -350,6 +352,7 @@ def plot_target_trajectory_with_kalman(
 
     # ───────────────────────────── figure & objets ────────────────────────────
     fig, ax = plt.subplots(figsize=(6, 8))
+    plt.grid(True)
 
     # antennes
     ant_pos = Processor.ANTENNA_POS
@@ -393,9 +396,16 @@ def plot_target_trajectory_with_kalman(
         color="r",
     )
 
-    # ───────────── ajout d'une ligne pour tracer la trajectoire Kalman ─────────
+    # ───────────── ajout d'une ligne pour tracer la trajectoire Kalman et les mesures ─────────
     traj_x, traj_y = [kalman_params["kalman_x"][0]], [kalman_params["kalman_x"][1]]
     (traj_line,) = ax.plot(traj_x, traj_y, "r-", linewidth=1.5, label="Trajectoire Kalman")
+    
+    # Nouvelle liste pour stocker toutes les mesures
+    meas_traj_x, meas_traj_y = [first_pos[0]], [first_pos[1]]
+    meas_traj_scatter = ax.scatter(meas_traj_x, meas_traj_y, c='gray', alpha=0.3, s=20, label="Historique mesures")
+    
+    # Collection de flèches pour indiquer le sens du parcours
+    direction_arrows = []
 
     # Axes
     ax.set_xlabel("X (m)")
@@ -422,6 +432,11 @@ def plot_target_trajectory_with_kalman(
         meas_point.set_offsets(meas_pos)
         meas_quiv.set_offsets(meas_pos)
         meas_quiv.set_UVC(vx, vy)
+        
+        # Ajouter la mesure à l'historique
+        meas_traj_x.append(meas_pos[0])
+        meas_traj_y.append(meas_pos[1])
+        meas_traj_scatter.set_offsets(np.column_stack((meas_traj_x, meas_traj_y)))
 
         # 2) Kalman
         kal_x, kal_p = Processor.kalman_filter_monocible(
@@ -440,7 +455,33 @@ def plot_target_trajectory_with_kalman(
         kal_quiv.set_offsets(kal_pos)
         kal_quiv.set_UVC(kal_vel[0], kal_vel[1])
 
-        # 3) mise à jour de la trajectoire
+        # 3) mise à jour de la trajectoire Kalman
+        if len(traj_x) > 0:
+            # Ajouter une mini-flèche pour montrer la direction entre le dernier point et le nouveau
+            last_x, last_y = traj_x[-1], traj_y[-1]
+            
+            # Calculer le milieu du segment pour placer la flèche
+            mid_x = (last_x + kal_pos[0]) / 2
+            mid_y = (last_y + kal_pos[1]) / 2
+            
+            # Calculer le vecteur direction
+            dx = kal_pos[0] - last_x
+            dy = kal_pos[1] - last_y
+            
+            # Normaliser et réduire la taille de la flèche
+            norm = np.sqrt(dx**2 + dy**2)
+            if norm > 0:  # Éviter division par zéro
+                dx = dx / norm * 0.1  # Facteur d'échelle pour la taille de la flèche
+                dy = dy / norm * 0.1
+                
+                # Créer une petite flèche de direction
+                direction_arrow = ax.quiver(
+                    mid_x, mid_y, dx, dy,
+                    angles='xy', pivot='middle', scale_units='xy',
+                    scale=0.3, color='r', width=0.003, headwidth=5, headlength=6
+                )
+                direction_arrows.append(direction_arrow)
+        
         traj_x.append(kal_pos[0])
         traj_y.append(kal_pos[1])
         traj_line.set_data(traj_x, traj_y)
@@ -448,14 +489,21 @@ def plot_target_trajectory_with_kalman(
         # 4) titre
         title.set_text(f"Position de la cible – Frame {frame_idx+1}/{N_frame}")
 
-        return (
+        return_objects = [
             meas_point,
             meas_quiv,
             kal_point,
             kal_quiv,
             traj_line,
+            meas_traj_scatter,
             title,
-        )
+        ]
+        
+        # Ajouter les flèches de direction à la liste des objets à retourner
+        if direction_arrows:
+            return_objects.extend(direction_arrows)
+            
+        return tuple(return_objects)
 
     ani = animation.FuncAnimation(
         fig,
@@ -463,7 +511,7 @@ def plot_target_trajectory_with_kalman(
         frames=range(N_frame),
         interval=50,
         blit=True,
-        repeat=True,
+        repeat=False,
     )
 
     plt.tight_layout()
