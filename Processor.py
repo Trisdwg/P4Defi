@@ -519,7 +519,7 @@ def tracking_init(file) :
 
 
 from scipy.spatial.distance import cdist
-MAX_GATING_DIST_4D = 3.5                         # seuil en 4-D
+MAX_GATING_DIST_4D = 3.4                # seuil en 4-D
 
 def tracking_update(non_official, frame_idx, file, official=None):
     global NEXT_ID
@@ -572,7 +572,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
             tracked.non_official_count += 1
             
             # Décision pour les trackers non_official uniquement
-            if tracked.misses > 0.2 * tracked.non_official_count:
+            if tracked.misses > 0.4 * tracked.non_official_count:
                 # Trop de détections manquées pour un tracker non_official -> on le supprime
                 non_official.remove(tracked)
             elif tracked.non_official_count > 20 and tracked.misses < 0.15 * tracked.non_official_count:
@@ -584,7 +584,7 @@ def tracking_update(non_official, frame_idx, file, official=None):
             tracked.official_count += 1
             
             # Décision pour les trackers official uniquement
-            if tracked.misses > 0.35 * (tracked.non_official_count + tracked.official_count):
+            if tracked.misses > 0.5 * (tracked.non_official_count + tracked.official_count):
                 # Trop de détections manquées pour un tracker official -> on le retire
                 retired.append(tracked)
                 official.remove(tracked)
@@ -626,9 +626,11 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
     Returns:
         Liste des trackers après clustering
     """
+    print(f"DEBUG - Clustering parameters: dist={distance_threshold}, angle={angle_threshold}, overlap={time_overlap_threshold}")
+    
     if len(retired) <= 1:
         return retired
-    
+        
     # Fonction pour calculer l'angle entre deux vecteurs
     def angle_between(v1, v2):
         # Normaliser les vecteurs
@@ -655,33 +657,57 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
         return min_dist
     
     # Fonction pour vérifier si deux trajectoires sont temporellement proches
-    def are_temporally_close(trk_i, trk_j):
-        # Si les tracks se chevauchent, c'est évident
+    def are_temporally_close(trk_i, trk_j, overlap_threshold):
+        # Calculer les périodes de temps des deux trajectoires
         start_i = trk_i.frame_start
         end_i = trk_i.frame_start + len(trk_i.history) - 1
         
         start_j = trk_j.frame_start
         end_j = trk_j.frame_start + len(trk_j.history) - 1
         
-        # Chevauchement standard
-        if max(start_i, start_j) <= min(end_i, end_j):
+        # Calculer le chevauchement
+        overlap_start = max(start_i, start_j)
+        overlap_end = min(end_i, end_j)
+        
+        # Durée du chevauchement
+        overlap_length = max(0, overlap_end - overlap_start + 1)
+        
+        # Durées totales
+        duration_i = end_i - start_i + 1
+        duration_j = end_j - start_j + 1
+        
+        # Calculer le ratio de chevauchement par rapport à la trajectoire la plus courte
+        min_duration = min(duration_i, duration_j)
+        overlap_ratio = overlap_length / min_duration if min_duration > 0 else 0
+        
+        print(f"DEBUG - Overlap check: trk {trk_i.id} vs {trk_j.id}, ratio={overlap_ratio}, threshold={overlap_threshold}")
+        
+        # Premier test: le ratio de chevauchement doit être >= au seuil
+        if overlap_ratio >= overlap_threshold:
             return True
+            
+        # Si le seuil de chevauchement est 0, on peut utiliser le critère de proximité temporelle
+        if overlap_threshold == 0 and min_duration > 0:
+            # Si les tracks ne se chevauchent pas, vérifier la proximité temporelle
+            if overlap_length == 0:
+                gap = min(abs(end_i - start_j), abs(end_j - start_i))
+                max_allowed_gap = 10  # Maximum 10 frames d'écart
+                return gap <= max_allowed_gap
         
-        # Si non chevauchement, vérifier la proximité temporelle
-        gap = min(abs(end_i - start_j), abs(end_j - start_i))
-        max_allowed_gap = 10  # Nombre maximum de frames de gap autorisé
-        
-        return gap <= max_allowed_gap
+        # Par défaut, pas assez de chevauchement
+        return False
     
     # Fonction pour vérifier si deux trajectoires peuvent être fusionnées
     def can_merge(trk_i, trk_j):
         # 1. Vérifier la distance spatiale
         dist = min_distance(trk_i, trk_j)
         if dist > distance_threshold:
+            print(f"DEBUG - Distance check failed: trk {trk_i.id} vs {trk_j.id}, dist={dist}, threshold={distance_threshold}")
             return False
         
         # 2. Vérifier la proximité temporelle (chevauchement ou gap raisonnable)
-        if not are_temporally_close(trk_i, trk_j):
+        if not are_temporally_close(trk_i, trk_j, time_overlap_threshold):
+            print(f"DEBUG - Temporal check failed: trk {trk_i.id} vs {trk_j.id}")
             return False
             
         # 3. Vérifier la similitude de direction
@@ -705,6 +731,7 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
             return True
             
         angle = angle_between(dir_i, dir_j)
+        print(f"DEBUG - Angle check: trk {trk_i.id} vs {trk_j.id}, angle={angle}, threshold={angle_threshold}")
         return angle <= angle_threshold
     
     # Créer une copie de la liste des trackers
@@ -724,6 +751,7 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
             for j in range(i+1, n):
                 if can_merge(trackers[i], trackers[j]):
                     merge_matrix[i, j] = merge_matrix[j, i] = True
+                    print(f"DEBUG - Will merge: trk {trackers[i].id} and {trackers[j].id}")
         
         # Effectuer les fusions basées sur la matrice
         i = 0

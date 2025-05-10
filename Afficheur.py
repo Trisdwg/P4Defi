@@ -642,7 +642,7 @@ def plot_cfar(data_file, frame_idx=0, channel=0, save_path=None):
     else:
         plt.show()
 
-def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, angle_threshold=15.0, overlap_threshold=0.6):
+def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, angle_threshold=15.0, overlap_threshold=0.5):
     """
     Effectue le tracking complet et la clusterisation, puis anime l'évolution frame 
     par frame des trackers pour montrer comment ils se déplacent dans le temps.
@@ -688,7 +688,8 @@ def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, ang
     n_before = len(Processor.retired)
     Processor.cluster_retired_trackers(
         distance_threshold=dist_threshold, 
-        angle_threshold=angle_threshold
+        angle_threshold=angle_threshold,
+        time_overlap_threshold=overlap_threshold
     )
     n_after = len(Processor.retired)
     print(f"Clusterisation terminée: {n_before} → {n_after} trajectoires")
@@ -722,16 +723,23 @@ def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, ang
     # Préparer des collections vides pour chaque tracker
     trajectories = {}  # Stocke toutes les lignes de trajectoire
     positions = {}     # Stocke les marqueurs de position actuelle
+    endpoints = {}     # Stocke les marqueurs de fin de trajectoire (croix)
     
     for trk in retired_trackers:
         # Trajectoire complète (sera mise à jour pendant l'animation)
         line, = ax.plot([], [], '-', lw=1.5, color=colors[trk.id], alpha=0.7)
         trajectories[trk.id] = line
         
-        # Position actuelle
+        # Position actuelle (cercle)
         scatter = ax.scatter([], [], marker='o', s=80, color=colors[trk.id], 
                           edgecolor='w', linewidth=1.5, zorder=10, label=f"Tracker {trk.id}")
         positions[trk.id] = scatter
+        
+        # Position finale (croix) - initialement invisible
+        endmarker = ax.scatter([], [], marker='x', s=100, color=colors[trk.id],
+                            linewidth=2, zorder=11)
+        endmarker.set_alpha(0)  # Initialement invisible
+        endpoints[trk.id] = endmarker
     
     # Légende (affichée une seule fois avec tous les trackers)
     ax.legend(loc='upper right')
@@ -762,33 +770,62 @@ def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, ang
             trk_start = trk.frame_start
             trk_end = trk_start + len(trk.history) - 1
             
-            # Si le tracker existe à cette frame
-            if trk_start <= real_frame <= trk_end:
-                # Indice dans l'historique du tracker
-                hist_idx = real_frame - trk_start
+            # Si le tracker est déjà apparu à cette frame ou avant
+            if real_frame >= trk_start:
+                # Si le tracker est actif à cette frame
+                if real_frame <= trk_end:
+                    # Indice dans l'historique du tracker
+                    hist_idx = real_frame - trk_start
                 
-                # Extraire toutes les positions jusqu'à la frame actuelle
-                positions_up_to_now = [state[0] for state in trk.history[:hist_idx+1]]
-                xs, ys = zip(*positions_up_to_now) if positions_up_to_now else ([], [])
+                    # Extraire toutes les positions jusqu'à la frame actuelle
+                    positions_up_to_now = [state[0] for state in trk.history[:hist_idx+1]]
+                    xs, ys = zip(*positions_up_to_now) if positions_up_to_now else ([], [])
                 
-                # Mettre à jour la trajectoire
-                trajectories[trk.id].set_data(xs, ys)
-                artists.append(trajectories[trk.id])
+                    # Mettre à jour la trajectoire
+                    trajectories[trk.id].set_data(xs, ys)
+                    artists.append(trajectories[trk.id])
                 
-                # Mettre à jour la position actuelle
-                if positions_up_to_now:
-                    curr_pos = np.array([positions_up_to_now[-1]])
-                    positions[trk.id].set_offsets(curr_pos)
-                    positions[trk.id].set_alpha(1.0)  # Visible
-                    artists.append(positions[trk.id])
+                    # Mettre à jour la position actuelle (cercle)
+                    if positions_up_to_now:
+                        curr_pos = np.array([positions_up_to_now[-1]])
+                        positions[trk.id].set_offsets(curr_pos)
+                        positions[trk.id].set_alpha(1.0)  # Visible
+                        artists.append(positions[trk.id])
+                    
+                    # S'assurer que le marqueur de fin est invisible
+                    endpoints[trk.id].set_alpha(0)
+                    artists.append(endpoints[trk.id])
+                        
+                # Si le tracker n'est plus actif mais a existé avant
+                else:
+                    # On garde la trajectoire complète
+                    full_trajectory = [state[0] for state in trk.history]
+                    xs, ys = zip(*full_trajectory) if full_trajectory else ([], [])
+                    trajectories[trk.id].set_data(xs, ys)
+                    artists.append(trajectories[trk.id])
+                    
+                    # On garde la dernière position connue, mais avec une croix
+                    if full_trajectory:
+                        last_pos = np.array([full_trajectory[-1]])
+                        
+                        # Rendre invisible le cercle
+                        positions[trk.id].set_alpha(0)
+                        artists.append(positions[trk.id])
+                        
+                        # Afficher la croix à la position finale
+                        endpoints[trk.id].set_offsets(last_pos)
+                        endpoints[trk.id].set_alpha(1.0)  # Visible
+                        artists.append(endpoints[trk.id])
             
-            # Si le tracker n'existe pas encore ou n'existe plus à cette frame
+            # Si le tracker n'existe pas encore à cette frame
             else:
-                # Masquer la trajectoire et la position
+                # Masquer la trajectoire et tous les marqueurs
                 trajectories[trk.id].set_data([], [])
                 positions[trk.id].set_alpha(0.0)  # Invisible
+                endpoints[trk.id].set_alpha(0.0)  # Invisible
                 artists.append(trajectories[trk.id])
                 artists.append(positions[trk.id])
+                artists.append(endpoints[trk.id])
         
         return artists
     
@@ -817,7 +854,7 @@ def main():
     
     # Required arguments
     parser.add_argument('data_file', type=str, nargs='?', 
-                      default="data/18-04/marche alea1.npz",
+                      default="data/30-04/démo1 monocible.npz",
                       help='Chemin vers le fichier de données (.npz)')
     
     # Optional arguments
@@ -836,9 +873,9 @@ def main():
                       help='Canal à afficher (pour plot_cfar)')
     
     # Clustering parameters
-    parser.add_argument('--dist-threshold', type=float, default=2.0,
+    parser.add_argument('--dist-threshold', type=float, default=0.07,
                       help='Seuil de distance (m) pour le clustering de trajectoires')
-    parser.add_argument('--angle-threshold', type=float, default=15.0,
+    parser.add_argument('--angle-threshold', type=float, default=5.0,
                       help='Seuil d\'angle (degrés) pour le clustering de trajectoires')
     parser.add_argument('--overlap-threshold', type=float, default=0.6,
                       help='Seuil de chevauchement temporel (0-1) pour le clustering de trajectoires')
