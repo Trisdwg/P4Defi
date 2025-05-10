@@ -72,7 +72,7 @@ def plot_trackers(fig, ax, non_official, official, retired, frame_idx):
     ax.set_xlabel("X [m]")
     ax.set_ylabel("Y [m]")
     ax.set_aspect('equal')
-    ax.set_title("Trajectoires des cibles (trackers retirés)")
+    ax.set_title("Trajectoires des cibles (trackers retirés), Frame " + str(frame_idx))
     ax.grid(True)
     plt.tight_layout()
 
