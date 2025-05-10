@@ -242,5 +242,5 @@ def debug_full_tracking_and_plot(data_file):
 
 
 if __name__ == "__main__":
-    data_file = "data/30-04/marche 2-15m.npz"  # Exemple de fichier
+    data_file = "data/18-04/doublemarche4-17memevit.npz"  # Exemple de fichier
     debug_full_tracking_and_plot(data_file)
