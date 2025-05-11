@@ -509,14 +509,27 @@ def make_intraframe_tracks(all_targets, file=None):
     return tracks
 
     
-def tracking_init(file) :
+def tracking_init(file):
     global NEXT_ID
-    RDM = compute_RDM(file,0)  # Utiliser frame 0 pour l'initialisation
-    all_tragets = extract_all_targets(RDM, file)
-    tracks = make_intraframe_tracks(all_tragets, file)
-    for i, track in enumerate(tracks):
-        non_official.append(tracker(NEXT_ID, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), frame_start=0))
-        NEXT_ID += 1
+    data, *_ = load_file(file)
+    N_frame = data.shape[0]
+    
+    # Try up to 5 frames for initialization
+    max_init_frames = min(5, N_frame)
+    
+    for frame_idx in range(max_init_frames):
+        RDM = compute_RDM(file, frame_idx)
+        all_tragets = extract_all_targets(RDM, file)
+        tracks = make_intraframe_tracks(all_tragets, file)
+        
+        if tracks:  # If we found valid tracks
+            for i, track in enumerate(tracks):
+                non_official.append(tracker(NEXT_ID, np.array([track[0][0], track[0][1], track[1][0], track[1][1]]), np.eye(4), frame_start=frame_idx))
+                NEXT_ID += 1
+            print(f"Initialization successful at frame {frame_idx} with {len(tracks)} trackers")
+            return non_official
+    
+    print("Warning: No valid tracks found in first", max_init_frames, "frames")
     return non_official
 
 

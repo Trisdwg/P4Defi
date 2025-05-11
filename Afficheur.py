@@ -315,11 +315,24 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
 def transform_coordinates(x, y, data_file):
     """
     Transforme les coordonnées (x,y) en inversant la composante x si le fichier
-    est dans le dossier data/30-04.
+    est dans le dossier data/30-04. Cette transformation s'applique aussi aux positions
+    des antennes.
     """
     if "data/30-04" in data_file:
         return -x, y
     return x, y
+
+def get_antenna_positions(data_file):
+    """
+    Retourne les positions des antennes, en appliquant la transformation de coordonnées
+    si nécessaire (pour data/30-04).
+    """
+    if "data/30-04" in data_file:
+        # Inverser les positions x des antennes
+        ant_pos = Processor.ANTENNA_POS.copy()
+        ant_pos[:, 0] = -ant_pos[:, 0]
+        return ant_pos
+    return Processor.ANTENNA_POS
 
 def plot_target_trajectory_with_kalman(
     data_file,
@@ -363,7 +376,7 @@ def plot_target_trajectory_with_kalman(
     plt.grid(True)
 
     # antennes
-    ant_pos = Processor.ANTENNA_POS
+    ant_pos = get_antenna_positions(data_file)
     ax.scatter(ant_pos[:, 0], ant_pos[:, 1], marker="^", c="k", label="Antennes")
 
     # mesures et Kalman – points + vecteurs vitesse
@@ -629,7 +642,7 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None, dist_threshold=2.
                      width=0.005, headwidth=2, headlength=2, headaxislength=2)
 
     # (optionnel) affichage des antennes
-    ant = Processor.ANTENNA_POS
+    ant = get_antenna_positions(data_file)
     ax.scatter(ant[:,0], ant[:,1], marker='^', c='k', s=60, label="Antennes")
 
     ax.set_xlabel("X [m]")
@@ -781,7 +794,7 @@ def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, ang
     fig, ax = plt.subplots(figsize=(10, 8))
     
     # Afficher les antennes
-    ant = Processor.ANTENNA_POS
+    ant = get_antenna_positions(data_file)
     ax.scatter(ant[:,0], ant[:,1], marker='^', c='k', s=60, label="Antennes")
     
     # Préparer les couleurs pour chaque tracker
