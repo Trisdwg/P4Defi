@@ -6,6 +6,8 @@ from scipy.ndimage import maximum_filter
 from scipy.signal import convolve2d
 from scipy.signal import fftconvolve
 import time
+import logging
+from datetime import datetime
 
 # ===========================================================================
 # Paramètres physiques 
@@ -617,16 +619,7 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
     """
     Fusionne les trackers de la liste 'retired' qui sont trop proches et ont des directions similaires.
     Version améliorée avec une approche plus robuste et moins sensible au chevauchement temporel.
-    
-    Args:
-        distance_threshold: Seuil de distance maximale entre les trajectoires (en mètres)
-        angle_threshold: Seuil d'angle maximal entre les directions (en degrés)
-        time_overlap_threshold: Proportion minimale de temps pendant lequel les trajectoires doivent se chevaucher
-    
-    Returns:
-        Liste des trackers après clustering
     """
-    print(f"DEBUG - Clustering parameters: dist={distance_threshold}, angle={angle_threshold}, overlap={time_overlap_threshold}")
     
     if len(retired) <= 1:
         return retired
@@ -680,42 +673,26 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
         min_duration = min(duration_i, duration_j)
         overlap_ratio = overlap_length / min_duration if min_duration > 0 else 0
         
-        print(f"DEBUG - Overlap check: trk {trk_i.id} vs {trk_j.id}, ratio={overlap_ratio}, threshold={overlap_threshold}")
-        
-        # Premier test: le ratio de chevauchement doit être >= au seuil
-        if overlap_ratio >= overlap_threshold:
-            return True
-            
-        # Si le seuil de chevauchement est 0, on peut utiliser le critère de proximité temporelle
-        if overlap_threshold == 0 and min_duration > 0:
-            # Si les tracks ne se chevauchent pas, vérifier la proximité temporelle
-            if overlap_length == 0:
-                gap = min(abs(end_i - start_j), abs(end_j - start_i))
-                max_allowed_gap = 10  # Maximum 10 frames d'écart
-                return gap <= max_allowed_gap
-        
-        # Par défaut, pas assez de chevauchement
-        return False
+        # Retourner True uniquement si le ratio de chevauchement est >= au seuil
+        return overlap_ratio >= overlap_threshold
     
     # Fonction pour vérifier si deux trajectoires peuvent être fusionnées
     def can_merge(trk_i, trk_j):
         # 1. Vérifier la distance spatiale
         dist = min_distance(trk_i, trk_j)
         if dist > distance_threshold:
-            print(f"DEBUG - Distance check failed: trk {trk_i.id} vs {trk_j.id}, dist={dist}, threshold={distance_threshold}")
             return False
         
         # 2. Vérifier la proximité temporelle (chevauchement ou gap raisonnable)
         if not are_temporally_close(trk_i, trk_j, time_overlap_threshold):
-            print(f"DEBUG - Temporal check failed: trk {trk_i.id} vs {trk_j.id}")
             return False
-            
+        
         # 3. Vérifier la similitude de direction
         # Calculer les vecteurs de direction moyenne
         if len(trk_i.history) < 2 or len(trk_j.history) < 2:
             # Si une des trajectoires est trop courte, ne pas vérifier l'angle
             return True
-            
+        
         # Calculer les directions moyennes (fin - début pour les trajectoires assez longues)
         dir_i = np.array(trk_i.history[-1][0]) - np.array(trk_i.history[0][0])
         dir_j = np.array(trk_j.history[-1][0]) - np.array(trk_j.history[0][0])
@@ -725,20 +702,21 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
             dir_i = np.array([trk_i.kalman_x[2], trk_i.kalman_x[3]])
         if np.linalg.norm(dir_j) < 0.5:
             dir_j = np.array([trk_j.kalman_x[2], trk_j.kalman_x[3]])
-            
+        
         # Si les vecteurs sont toujours trop courts, considérer que les directions sont similaires
         if np.linalg.norm(dir_i) < 0.1 or np.linalg.norm(dir_j) < 0.1:
             return True
-            
+        
         angle = angle_between(dir_i, dir_j)
-        print(f"DEBUG - Angle check: trk {trk_i.id} vs {trk_j.id}, angle={angle}, threshold={angle_threshold}")
-        return angle <= angle_threshold
-    
+        if angle > angle_threshold:
+            return False
+        
+        return True
     # Créer une copie de la liste des trackers
     trackers = retired.copy()
     
-    # Réaliser plusieurs passes de fusion pour s'assurer que toutes les fusions possibles sont effectuées
-    max_passes = 3
+    # Réaliser 2 passes de fusion (au lieu de 3)
+    max_passes = 1
     for pass_num in range(max_passes):
         merges_done = False
         
@@ -764,14 +742,40 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
                 # Obtenir tous les trackers à fusionner
                 merge_candidates = [trackers[i]] + [trackers[j] for j in to_merge]
                 
-                # Sélectionner le meilleur tracker basé sur le ratio de miss le plus bas
+                # DEBUG: Afficher les détails des trackers spécifiques 5 et 3981 s'ils font partie des candidats à fusionner
+                tracker_ids = [trk.id for trk in merge_candidates]
+                if 5 in tracker_ids and 3981 in tracker_ids:
+                    print(f"\n===== DÉTAILS AVANT FUSION DES TRACKERS SPÉCIFIQUES =====")
+                    for trk in merge_candidates:
+                        if trk.id == 5 or trk.id == 3981:
+                            print(f"Tracker ID: {trk.id}")
+                            print(f"  Position actuelle: {trk.kalman_x[0:2]}")
+                            print(f"  Vitesse actuelle: {trk.kalman_x[2:4]}")
+                            print(f"  Misses: {trk.misses}")
+                            print(f"  Frames: {trk.non_official_count + trk.official_count}")
+                            print(f"  Miss ratio: {trk.misses / (trk.non_official_count + trk.official_count) if (trk.non_official_count + trk.official_count) > 0 else 1.0}")
+                            print(f"  Longueur trajectory: {len(trk.history)}")
+                            print(f"  Premier point: {trk.history[0][0]}")
+                            print(f"  Dernier point: {trk.history[-1][0]}")
+                            print(f"  Frame début: {trk.frame_start}")
+                            print(f"  Frame fin estimée: {trk.frame_start + len(trk.history) - 1}")
+                    print(f"=====================================================\n")
+                
+                # Sélectionner le meilleur tracker basé sur un mix de miss pondéré avec la longueur
                 best_idx = 0
-                best_ratio = float('inf')
+                best_score = float('inf')
                 for idx, trk in enumerate(merge_candidates):
                     total_frames = trk.non_official_count + trk.official_count
-                    ratio = trk.misses / total_frames if total_frames > 0 else 1.0
-                    if ratio < best_ratio or (ratio == best_ratio and len(trk.history) > len(merge_candidates[best_idx].history)):
-                        best_ratio = ratio
+                    miss_ratio = trk.misses / total_frames if total_frames > 0 else 1.0
+                    traj_length = len(trk.history)
+                    
+                    # Plus le score est bas, meilleur est le tracker
+                    # La formule pondère le ratio de miss par la longueur de la trajectoire
+                    # Les trajectoires longues avec peu de misses obtiennent les meilleurs scores
+                    score = miss_ratio / (2*np.log1p(traj_length))
+                    
+                    if score < best_score:
+                        best_score = score
                         best_idx = idx
                 
                 # Conserver le meilleur tracker
