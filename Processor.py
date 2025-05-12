@@ -154,6 +154,7 @@ def compute_speed(file, frame_idx=0):
     return v, np.linalg.norm(v)
 
 def kalman_filter_monocible(file, frame_idx, kalman_x, kalman_P, outlierRadius):
+    print("Frame ", frame_idx)
 
     RDMs = compute_RDM(file, frame_idx)
     d_q = []
@@ -734,6 +735,31 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
         print(f"DEBUG - Angle check: trk {trk_i.id} vs {trk_j.id}, angle={angle}, threshold={angle_threshold}")
         return angle <= angle_threshold
     
+    def simple_merge(candidates):
+        # Sélectionner le meilleur tracker basé sur le ratio de miss le plus bas
+        best_idx = 0
+        best_ratio = float('inf')
+        for idx, trk in enumerate(merge_candidates):
+            total_frames = trk.non_official_count + trk.official_count
+            ratio = trk.misses / total_frames if total_frames > 0 else 1.0
+            if ratio < best_ratio or (ratio == best_ratio and len(trk.history) > len(merge_candidates[best_idx].history)):
+                best_ratio = ratio
+                best_idx = idx
+        return best_idx
+    
+    def better_merge(candidates):
+        min_start = min(trk.frame_start for trk in candidates)
+        max_end = max(trk.frame_start + len(trk.history) - 1 for trk in candidates)
+        ntracks = np.sum(1 for trk in candidates if trk.frame_start == min_start)
+        prevstart = min_start
+        overlaps = []
+        for frame in range(min_start, max_end + 1):
+            newntracks = np.sum(1 for trk in candidates if trk.frame_start == frame)
+            if newntracks != ntracks:
+                overlaps.append((prevstart, frame, ntracks))
+                prevstart = frame
+                ntracks = newntracks
+    
     # Créer une copie de la liste des trackers
     trackers = retired.copy()
     
@@ -763,16 +789,9 @@ def cluster_retired_trackers(distance_threshold=2.0, angle_threshold=15.0, time_
                 merges_done = True
                 # Obtenir tous les trackers à fusionner
                 merge_candidates = [trackers[i]] + [trackers[j] for j in to_merge]
-                
-                # Sélectionner le meilleur tracker basé sur le ratio de miss le plus bas
-                best_idx = 0
-                best_ratio = float('inf')
-                for idx, trk in enumerate(merge_candidates):
-                    total_frames = trk.non_official_count + trk.official_count
-                    ratio = trk.misses / total_frames if total_frames > 0 else 1.0
-                    if ratio < best_ratio or (ratio == best_ratio and len(trk.history) > len(merge_candidates[best_idx].history)):
-                        best_ratio = ratio
-                        best_idx = idx
+                print(f"NUMBER OF TRACKERS TO MERGE: {len(merge_candidates)}")
+
+                best_idx = simple_merge(merge_candidates)
                 
                 # Conserver le meilleur tracker
                 best_tracker = merge_candidates[best_idx]
