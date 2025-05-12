@@ -312,6 +312,27 @@ def plot_multi_target_rdmsv2(data_file, save_path = None,
         else:
             plt.show()
 
+def transform_coordinates(x, y, data_file):
+    """
+    Transforme les coordonnées (x,y) en inversant la composante x si le fichier
+    est dans le dossier data/30-04. Cette transformation s'applique aussi aux positions
+    des antennes.
+    """
+    if "data/30-04" in data_file:
+        return -x, y
+    return x, y
+
+def get_antenna_positions(data_file):
+    """
+    Retourne les positions des antennes, en appliquant la transformation de coordonnées
+    si nécessaire (pour data/30-04).
+    """
+    if "data/30-04" in data_file:
+        # Inverser les positions x des antennes
+        ant_pos = Processor.ANTENNA_POS.copy()
+        ant_pos[:, 0] = -ant_pos[:, 0]
+        return ant_pos
+    return Processor.ANTENNA_POS
 
 def plot_target_trajectory_with_kalman(
     data_file,
@@ -355,7 +376,7 @@ def plot_target_trajectory_with_kalman(
     plt.grid(True)
 
     # antennes
-    ant_pos = Processor.ANTENNA_POS
+    ant_pos = get_antenna_positions(data_file)
     ax.scatter(ant_pos[:, 0], ant_pos[:, 1], marker="^", c="k", label="Antennes")
 
     # mesures et Kalman – points + vecteurs vitesse
@@ -363,18 +384,22 @@ def plot_target_trajectory_with_kalman(
     first_vel_vec, _ = Processor.compute_speed(data_file, 0)
     vx0, vy0 = first_vel_vec * dt
 
-    meas_point = ax.scatter(*first_pos, c="b", s=50, label="Mesure")
+    # Transformer les coordonnées
+    first_pos_x, first_pos_y = transform_coordinates(first_pos[0], first_pos[1], data_file)
+    kalman_x, kalman_y = transform_coordinates(kalman_params["kalman_x"][0], kalman_params["kalman_x"][1], data_file)
+
+    meas_point = ax.scatter(first_pos_x, first_pos_y, c="b", s=50, label="Mesure")
     kal_point = ax.scatter(
-        kalman_params["kalman_x"][0],
-        kalman_params["kalman_x"][1],
+        kalman_x,
+        kalman_y,
         c="r",
         s=50,
         label="Kalman",
     )
 
     meas_quiv = ax.quiver(
-        first_pos[0],
-        first_pos[1],
+        first_pos_x,
+        first_pos_y,
         vx0,
         vy0,
         angles="xy",
@@ -385,8 +410,8 @@ def plot_target_trajectory_with_kalman(
     )
 
     kal_quiv = ax.quiver(
-        kalman_params["kalman_x"][0],
-        kalman_params["kalman_x"][1],
+        kalman_x,
+        kalman_y,
         kalman_params["kalman_x"][2] * dt,
         kalman_params["kalman_x"][3] * dt,
         angles="xy",
@@ -397,11 +422,11 @@ def plot_target_trajectory_with_kalman(
     )
 
     # ───────────── ajout d'une ligne pour tracer la trajectoire Kalman et les mesures ─────────
-    traj_x, traj_y = [kalman_params["kalman_x"][0]], [kalman_params["kalman_x"][1]]
+    traj_x, traj_y = [kalman_x], [kalman_y]
     (traj_line,) = ax.plot(traj_x, traj_y, "r-", linewidth=1.5, label="Trajectoire Kalman")
     
     # Nouvelle liste pour stocker toutes les mesures
-    meas_traj_x, meas_traj_y = [first_pos[0]], [first_pos[1]]
+    meas_traj_x, meas_traj_y = [first_pos_x], [first_pos_y]
     meas_traj_scatter = ax.scatter(meas_traj_x, meas_traj_y, c='gray', alpha=0.3, s=20, label="Historique mesures")
     
     # Collection de flèches pour indiquer le sens du parcours
@@ -429,13 +454,16 @@ def plot_target_trajectory_with_kalman(
         meas_vel_vec, _ = Processor.compute_speed(data_file, frame_idx)
         vx, vy = meas_vel_vec * dt
 
-        meas_point.set_offsets(meas_pos)
-        meas_quiv.set_offsets(meas_pos)
+        # Transformer les coordonnées
+        meas_pos_x, meas_pos_y = transform_coordinates(meas_pos[0], meas_pos[1], data_file)
+
+        meas_point.set_offsets([meas_pos_x, meas_pos_y])
+        meas_quiv.set_offsets([meas_pos_x, meas_pos_y])
         meas_quiv.set_UVC(vx, vy)
         
         # Ajouter la mesure à l'historique
-        meas_traj_x.append(meas_pos[0])
-        meas_traj_y.append(meas_pos[1])
+        meas_traj_x.append(meas_pos_x)
+        meas_traj_y.append(meas_pos_y)
         meas_traj_scatter.set_offsets(np.column_stack((meas_traj_x, meas_traj_y)))
 
         # 2) Kalman
@@ -451,8 +479,11 @@ def plot_target_trajectory_with_kalman(
         kal_pos = kal_x[:2]
         kal_vel = kal_x[2:] * dt
 
-        kal_point.set_offsets(kal_pos)
-        kal_quiv.set_offsets(kal_pos)
+        # Transformer les coordonnées Kalman
+        kal_pos_x, kal_pos_y = transform_coordinates(kal_pos[0], kal_pos[1], data_file)
+
+        kal_point.set_offsets([kal_pos_x, kal_pos_y])
+        kal_quiv.set_offsets([kal_pos_x, kal_pos_y])
         kal_quiv.set_UVC(kal_vel[0], kal_vel[1])
 
         # 3) mise à jour de la trajectoire Kalman
@@ -461,12 +492,12 @@ def plot_target_trajectory_with_kalman(
             last_x, last_y = traj_x[-1], traj_y[-1]
             
             # Calculer le milieu du segment pour placer la flèche
-            mid_x = (last_x + kal_pos[0]) / 2
-            mid_y = (last_y + kal_pos[1]) / 2
+            mid_x = (last_x + kal_pos_x) / 2
+            mid_y = (last_y + kal_pos_y) / 2
             
             # Calculer le vecteur direction
-            dx = kal_pos[0] - last_x
-            dy = kal_pos[1] - last_y
+            dx = kal_pos_x - last_x
+            dy = kal_pos_y - last_y
             
             # Normaliser et réduire la taille de la flèche
             norm = np.sqrt(dx**2 + dy**2)
@@ -482,8 +513,8 @@ def plot_target_trajectory_with_kalman(
                 )
                 direction_arrows.append(direction_arrow)
         
-        traj_x.append(kal_pos[0])
-        traj_y.append(kal_pos[1])
+        traj_x.append(kal_pos_x)
+        traj_y.append(kal_pos_y)
         traj_line.set_data(traj_x, traj_y)
 
         # 4) titre
@@ -585,6 +616,8 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None, dist_threshold=2.
     for trk, col in zip(retired_trackers, color_cycle):
         hist = trk.history
         traj = [state[0] for state in hist]     # positions (x,y)
+        # Transformer les coordonnées
+        traj = [(transform_coordinates(x, y, data_file)) for x, y in traj]
         xs, ys = zip(*traj)
         
         # Tracer la trajectoire
@@ -609,7 +642,7 @@ def run_full_tracking_and_plot(data_file, save_plot_path=None, dist_threshold=2.
                      width=0.005, headwidth=2, headlength=2, headaxislength=2)
 
     # (optionnel) affichage des antennes
-    ant = Processor.ANTENNA_POS
+    ant = get_antenna_positions(data_file)
     ax.scatter(ant[:,0], ant[:,1], marker='^', c='k', s=60, label="Antennes")
 
     ax.set_xlabel("X [m]")
@@ -761,7 +794,7 @@ def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, ang
     fig, ax = plt.subplots(figsize=(10, 8))
     
     # Afficher les antennes
-    ant = Processor.ANTENNA_POS
+    ant = get_antenna_positions(data_file)
     ax.scatter(ant[:,0], ant[:,1], marker='^', c='k', s=60, label="Antennes")
     
     # Préparer les couleurs pour chaque tracker
@@ -827,6 +860,8 @@ def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, ang
                 
                     # Extraire toutes les positions jusqu'à la frame actuelle
                     positions_up_to_now = [state[0] for state in trk.history[:hist_idx+1]]
+                    # Transformer les coordonnées
+                    positions_up_to_now = [(transform_coordinates(x, y, data_file)) for x, y in positions_up_to_now]
                     xs, ys = zip(*positions_up_to_now) if positions_up_to_now else ([], [])
                 
                     # Mettre à jour la trajectoire
@@ -848,6 +883,8 @@ def animate_tracker_evolution(data_file, save_path=None, dist_threshold=2.0, ang
                 else:
                     # On garde la trajectoire complète
                     full_trajectory = [state[0] for state in trk.history]
+                    # Transformer les coordonnées
+                    full_trajectory = [(transform_coordinates(x, y, data_file)) for x, y in full_trajectory]
                     xs, ys = zip(*full_trajectory) if full_trajectory else ([], [])
                     trajectories[trk.id].set_data(xs, ys)
                     artists.append(trajectories[trk.id])
